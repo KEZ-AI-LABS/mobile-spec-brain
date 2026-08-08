@@ -1,4 +1,3 @@
-export const initialMigration = `
 CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS workspaces (id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS sources (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), type TEXT NOT NULL, status TEXT NOT NULL, configuration_json TEXT NOT NULL, created_at TEXT NOT NULL);
@@ -11,8 +10,6 @@ CREATE TABLE IF NOT EXISTS sync_cursors (source_id TEXT PRIMARY KEY REFERENCES s
 CREATE TABLE IF NOT EXISTS extractor_cache (cache_key TEXT PRIMARY KEY, result_json TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS policies (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), type TEXT NOT NULL, definition_json TEXT NOT NULL, version TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, occurred_at TEXT NOT NULL, actor TEXT NOT NULL, operation TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, evidence_ids_json TEXT NOT NULL, reason TEXT NOT NULL, payload_json TEXT NOT NULL);
-CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity_id, occurred_at);
-CREATE INDEX IF NOT EXISTS idx_evidence_subject ON evidence(subject);
 CREATE TABLE IF NOT EXISTS semantic_concepts (id TEXT PRIMARY KEY, kind TEXT NOT NULL, canonical_name TEXT NOT NULL, state TEXT NOT NULL, metadata_json TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(kind, canonical_name));
 CREATE TABLE IF NOT EXISTS semantic_entities (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), type TEXT NOT NULL, attributes_json TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS entity_evidence (entity_id TEXT NOT NULL REFERENCES semantic_entities(id), evidence_id TEXT NOT NULL REFERENCES evidence(id), PRIMARY KEY(entity_id, evidence_id));
@@ -21,7 +18,8 @@ CREATE TABLE IF NOT EXISTS claim_evidence (claim_id TEXT NOT NULL REFERENCES cla
 CREATE TABLE IF NOT EXISTS semantic_relations (id TEXT PRIMARY KEY, from_id TEXT NOT NULL REFERENCES semantic_entities(id), type TEXT NOT NULL, to_id TEXT NOT NULL REFERENCES semantic_entities(id), state TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS relation_evidence (relation_id TEXT NOT NULL REFERENCES semantic_relations(id), evidence_id TEXT NOT NULL REFERENCES evidence(id), PRIMARY KEY(relation_id, evidence_id));
 CREATE TABLE IF NOT EXISTS semantic_findings (id TEXT PRIMARY KEY, subject_id TEXT REFERENCES semantic_entities(id), type TEXT NOT NULL, severity TEXT NOT NULL, state TEXT NOT NULL, explanation_json TEXT NOT NULL, evidence_ids_json TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity_id, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_evidence_subject ON evidence(subject);
 CREATE INDEX IF NOT EXISTS idx_claims_subject ON claims(subject_id, predicate);
 CREATE INDEX IF NOT EXISTS idx_semantic_entities_type ON semantic_entities(type);
 CREATE INDEX IF NOT EXISTS idx_entity_evidence_evidence ON entity_evidence(evidence_id);
-`;

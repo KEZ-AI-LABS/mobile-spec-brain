@@ -5,7 +5,7 @@ export * from "./invalidation.js";
 export * from "./source-adapter.js";
 export * from "./sync-engine.js";
 export * from "./resolution.js";
-export * from "./materialize.js";
 export * from "./mutation.js";
 export * from "./safety.js";
 export * from "./acl.js";
+export * from "./semantic.js";
