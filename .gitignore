@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+.specweave/
+*.sqlite
+.env
+.env.*
+!.env.example
+.npmrc
+.DS_Store
+.idea/
+.vscode/
+*.log
+*.tsbuildinfo
