@@ -1,8 +1,8 @@
-# SpecWeave
+# Mobile Spec Brain
 
-Evidence-first specification infrastructure for mobile product development.
+AI-native, evidence-first specification infrastructure for mobile product development.
 
-SpecWeave synchronizes source evidence, derives explainable specifications, and reports drift without treating generated specifications as editable source data.
+Mobile Spec Brain synchronizes source evidence, derives explainable specifications, and reports drift across Android, iOS, design, and APIs without treating generated specifications as editable source data.
 
 ## Current milestone
 
