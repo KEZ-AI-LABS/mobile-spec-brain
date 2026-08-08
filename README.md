@@ -12,12 +12,12 @@ The repository contains the Phase 1 foundation: typed domain contracts, append-o
 
 ```sh
 pnpm install
-pnpm specweave init
-pnpm specweave doctor
+pnpm mobile-spec-brain init
+pnpm mobile-spec-brain doctor
 pnpm test
 ```
 
-`init` creates a local `.specweave/` workspace with a SQLite database and a configuration template. Configure local sources to run the first vertical slice:
+`init` creates a local `.mobile-spec-brain/` workspace with a SQLite database and a configuration template. Configure local sources to run the first vertical slice:
 
 ```json
 {
@@ -29,14 +29,14 @@ pnpm test
 }
 ```
 
-`specweave check --json` runs API parity. It reports a missing code match as `UNKNOWN`, never as an unsupported “not implemented” assertion.
+`mobile-spec-brain check --json` runs API parity. It reports a missing code match as `UNKNOWN`, never as an unsupported “not implemented” assertion.
 
 To submit a human/agent proposal, use a JSON file with an allowed semantic operation and one or more existing Evidence IDs:
 
 ```sh
-pnpm specweave propose --file proposal.json --json
+pnpm mobile-spec-brain propose --file proposal.json --json
 ```
 
-Generate the read-only materialized wiki with `pnpm specweave wiki --json`. Generated files live in `.specweave/wiki/` and are replaced on the next render.
+Generate the read-only materialized wiki with `pnpm mobile-spec-brain wiki --json`. Generated files live in `.mobile-spec-brain/wiki/` and are replaced on the next render.
 
 See [the architecture](docs/architecture.md), [the data model](docs/data-model.md), and [the preserved build brief](docs/master-build-prompt.md).

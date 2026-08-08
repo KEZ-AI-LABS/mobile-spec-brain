@@ -14,9 +14,9 @@ SourceAdapter -> ChangeSet -> Raw revisions / blocks -> Evidence -> Specs -> Fin
                                       +-> append-only events+---------+
 ```
 
-- `@specweave/core` owns pure domain models, validation, hashing, adapter contracts, invalidation, and the event-store contract.
-- `@specweave/storage` owns SQLite schema migrations and persistence adapters.
-- `@specweave/cli` owns command parsing and workspace wiring; it contains no resolution logic.
+- `@mobile-spec-brain/core` owns pure domain models, validation, hashing, adapter contracts, invalidation, and the event-store contract.
+- `@mobile-spec-brain/storage` owns SQLite schema migrations and persistence adapters.
+- `@mobile-spec-brain/cli` owns command parsing and workspace wiring; it contains no resolution logic.
 
 ## First vertical slice
 

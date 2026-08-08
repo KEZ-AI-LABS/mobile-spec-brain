@@ -7,7 +7,7 @@ import { checkNavigationParity, scanNavigation } from "./navigation.js";
 
 describe("API parity", () => {
   it("produces evidence-backed UNKNOWN rather than a false missing claim", () => {
-    const root = mkdtempSync(join(tmpdir(), "specweave-api-")); mkdirSync(join(root, "android")); mkdirSync(join(root, "ios"));
+    const root = mkdtempSync(join(tmpdir(), "mobile-spec-brain-api-")); mkdirSync(join(root, "android")); mkdirSync(join(root, "ios"));
     const openapi = join(root, "openapi.json");
     writeFileSync(openapi, JSON.stringify({ paths: { "/transfer": { post: { responses: { "200": {}, "422": {} } } } } }));
     writeFileSync(join(root, "android", "TransferApi.kt"), '@POST("/transfer") fun transfer() = Unit');
@@ -16,7 +16,7 @@ describe("API parity", () => {
     expect(findings[0]!.operation.statusCodes).toEqual(["200", "422"]);
   });
   it("does not claim a missing navigation implementation", () => {
-    const root = mkdtempSync(join(tmpdir(), "specweave-nav-")); mkdirSync(join(root, "android")); mkdirSync(join(root, "ios"));
+    const root = mkdtempSync(join(tmpdir(), "mobile-spec-brain-nav-")); mkdirSync(join(root, "android")); mkdirSync(join(root, "ios"));
     writeFileSync(join(root, "android", "Nav.kt"), 'composable("transfer") { }');
     expect(checkNavigationParity(scanNavigation(join(root, "android"), "android"), scanNavigation(join(root, "ios"), "ios"))).toMatchObject([{ type: "UNKNOWN", route: "transfer" }]);
   });

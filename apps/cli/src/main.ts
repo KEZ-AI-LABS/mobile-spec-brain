@@ -2,14 +2,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
-import { applySourceSync, commitProposal, getEvidence, getFeature, getSpec, listFeatureSpecs, materializeSpecs, openWorkspaceDatabase, persistEvidence, persistFindings, readSyncState, SqliteEventStore } from "@specweave/storage";
-import { checkApiParity, checkNavigationParity, extractImplementationEvidence, extractOpenApiEvidence, mobileSnapshots, openApiSnapshots, parseOpenApi, scanMobileRepository, scanNavigation } from "@specweave/api-parity";
-import { enforceSyncSafety, materializeApiSpecs, planBlockSync, sha256 } from "@specweave/core";
-import { fetchFigmaFile, figmaSnapshots } from "@specweave/figma-adapter";
+import { applySourceSync, commitProposal, getEvidence, getFeature, getSpec, listFeatureSpecs, materializeSpecs, openWorkspaceDatabase, persistEvidence, persistFindings, readSyncState, SqliteEventStore } from "@mobile-spec-brain/storage";
+import { checkApiParity, checkNavigationParity, extractImplementationEvidence, extractOpenApiEvidence, mobileSnapshots, openApiSnapshots, parseOpenApi, scanMobileRepository, scanNavigation } from "@mobile-spec-brain/api-parity";
+import { enforceSyncSafety, materializeApiSpecs, planBlockSync, sha256 } from "@mobile-spec-brain/core";
+import { fetchFigmaFile, figmaSnapshots } from "@mobile-spec-brain/figma-adapter";
 import { z } from "zod";
 
 const projectRoot = process.env.INIT_CWD ?? process.cwd();
-const workspaceDir = join(projectRoot, ".specweave");
+const workspaceDir = join(projectRoot, ".mobile-spec-brain");
 const databasePath = join(workspaceDir, "workspace.sqlite");
 const configPath = join(workspaceDir, "config.json");
 
@@ -25,7 +25,7 @@ function init(json: boolean): void {
   mkdirSync(workspaceDir, { recursive: true });
   const database = openWorkspaceDatabase(databasePath);
   const workspace = database.prepare("SELECT id, name FROM workspaces LIMIT 1").get() as { id: string; name: string } | undefined;
-  if (!workspace) database.prepare("INSERT INTO workspaces (id, name, created_at) VALUES (?, ?, ?)").run(`workspace:${randomUUID()}`, projectRoot.split("/").at(-1) ?? "specweave", new Date().toISOString());
+  if (!workspace) database.prepare("INSERT INTO workspaces (id, name, created_at) VALUES (?, ?, ?)").run(`workspace:${randomUUID()}`, projectRoot.split("/").at(-1) ?? "mobile-spec-brain", new Date().toISOString());
   if (!existsSync(configPath)) writeFileSync(configPath, JSON.stringify({ version: 1, sources: [], profiles: ["mobile-generic"] }, null, 2) + "\n");
   database.close();
   output({ status: "initialized", workspace: workspaceDir, config: configPath, database: databasePath }, json);
@@ -33,7 +33,7 @@ function init(json: boolean): void {
 
 function requireInitialized(json: boolean): boolean {
   if (initialized()) return true;
-  output({ status: "error", code: "WORKSPACE_NOT_INITIALIZED", message: "Run `specweave init` first." }, json);
+  output({ status: "error", code: "WORKSPACE_NOT_INITIALIZED", message: "Run `mobile-spec-brain init` first." }, json);
   process.exitCode = 2;
   return false;
 }
@@ -49,7 +49,7 @@ function sourceSet(): { openapi?: ConfigSource; android?: ConfigSource; ios?: Co
 async function sync(plan: boolean, json: boolean): Promise<void> {
   if (!requireInitialized(json)) return;
   const sources = config().sources ?? [];
-  if (sources.length === 0) { output({ status: "unavailable", mode: plan ? "PLAN" : "APPLY", code: "NO_SOURCES_CONFIGURED", message: "Configure OPENAPI, ANDROID, and IOS local sources in .specweave/config.json.", configuredSources: 0 }, json); process.exitCode = 3; return; }
+  if (sources.length === 0) { output({ status: "unavailable", mode: plan ? "PLAN" : "APPLY", code: "NO_SOURCES_CONFIGURED", message: "Configure OPENAPI, ANDROID, and IOS local sources in .mobile-spec-brain/config.json.", configuredSources: 0 }, json); process.exitCode = 3; return; }
   const inspected = sources.map((source) => ({ id: source.id, type: source.type, path: source.type === "FIGMA" ? source.fileKey ?? "" : resolve(projectRoot, source.path), exists: source.type === "FIGMA" ? Boolean(source.fileKey && process.env.FIGMA_TOKEN) : existsSync(resolve(projectRoot, source.path)) }));
   const api = sourceSet().openapi;
   if (api && inspected.every((source) => source.exists)) {
@@ -100,7 +100,7 @@ function doctor(json: boolean): void {
 function propose(args: string[], json: boolean): void {
   if (!requireInitialized(json)) return;
   const fileIndex = args.indexOf("--file"); const proposalPath = fileIndex >= 0 ? args[fileIndex + 1] : undefined;
-  if (!proposalPath) { output({ status: "error", code: "PROPOSAL_FILE_REQUIRED", message: "Use `specweave propose --file proposal.json`." }, json); process.exitCode = 2; return; }
+  if (!proposalPath) { output({ status: "error", code: "PROPOSAL_FILE_REQUIRED", message: "Use `mobile-spec-brain propose --file proposal.json`." }, json); process.exitCode = 2; return; }
   try {
     const proposal = JSON.parse(readFileSync(resolve(projectRoot, proposalPath), "utf8")); const database = openWorkspaceDatabase(databasePath);
     const actors = config() as WorkspaceConfig & { mutationPolicy?: { allowedActors?: string[]; minimumEvidence?: number } };
@@ -119,7 +119,7 @@ function renderWiki(json: boolean): void {
   if (!requireInitialized(json)) return;
   const database = openWorkspaceDatabase(databasePath); const rows = listFeatureSpecs(database); database.close();
   const byFeature = Map.groupBy(rows, (row) => row.feature); const wikiDir = join(workspaceDir, "wiki"); mkdirSync(wikiDir, { recursive: true });
-  for (const [feature, specs] of byFeature) { if (!feature) continue; const body = [`# ${specs?.[0]?.displayName ?? feature}`, "", "> Generated by SpecWeave. Do not edit directly.", "", "## Specifications", "", ...(specs ?? []).map((spec) => `- \`${spec.key}\` — ${spec.value} (confidence: ${spec.confidence})`), ""].join("\n"); writeFileSync(join(wikiDir, `${feature}.md`), body); }
+  for (const [feature, specs] of byFeature) { if (!feature) continue; const body = [`# ${specs?.[0]?.displayName ?? feature}`, "", "> Generated by Mobile Spec Brain. Do not edit directly.", "", "## Specifications", "", ...(specs ?? []).map((spec) => `- \`${spec.key}\` — ${spec.value} (confidence: ${spec.confidence})`), ""].join("\n"); writeFileSync(join(wikiDir, `${feature}.md`), body); }
   output({ status: "rendered", directory: wikiDir, features: byFeature.size }, json);
 }
 
@@ -137,6 +137,6 @@ switch (command) {
   case "history": await readCommand("history", args.find((arg) => !arg.startsWith("--")), json); break;
   case "wiki": renderWiki(json); break;
   default:
-    console.log("Usage: specweave <init|sync|check|doctor|propose|feature|spec|evidence|history|wiki> [--plan] [--json]");
+    console.log("Usage: mobile-spec-brain <init|sync|check|doctor|propose|feature|spec|evidence|history|wiki> [--plan] [--json]");
     process.exitCode = command ? 2 : 0;
 }

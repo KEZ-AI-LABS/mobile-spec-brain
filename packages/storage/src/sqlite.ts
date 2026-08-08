@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { validateMutation, type ChangeSet, type DomainEvent, type Evidence, type EventStore, type MaterializedSpec, type MutationPolicy, type MutationProposal, type RawBlockSnapshot, type SourceDescriptor } from "@specweave/core";
+import { validateMutation, type ChangeSet, type DomainEvent, type Evidence, type EventStore, type MaterializedSpec, type MutationPolicy, type MutationProposal, type RawBlockSnapshot, type SourceDescriptor } from "@mobile-spec-brain/core";
 import { initialMigration } from "./migration.js";
 
 export function openWorkspaceDatabase(path: string): Database.Database {

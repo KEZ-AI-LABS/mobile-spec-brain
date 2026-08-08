@@ -1,14 +1,14 @@
 {
-  "name": "@specweave/cli",
+  "name": "@mobile-spec-brain/cli",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "bin": { "specweave": "./dist/main.js" },
+  "bin": { "mobile-spec-brain": "./dist/main.js" },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "start": "node dist/main.js"
   },
-  "dependencies": { "@specweave/api-parity": "workspace:*", "@specweave/core": "workspace:*", "@specweave/figma-adapter": "workspace:*", "@specweave/storage": "workspace:*", "zod": "^3.24.4" }
+  "dependencies": { "@mobile-spec-brain/api-parity": "workspace:*", "@mobile-spec-brain/core": "workspace:*", "@mobile-spec-brain/figma-adapter": "workspace:*", "@mobile-spec-brain/storage": "workspace:*", "zod": "^3.24.4" }
 }

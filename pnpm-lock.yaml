@@ -20,16 +20,16 @@ importers:
 
   apps/cli:
     dependencies:
-      '@specweave/api-parity':
+      '@mobile-spec-brain/api-parity':
         specifier: workspace:*
         version: link:../../packages/api-parity
-      '@specweave/core':
+      '@mobile-spec-brain/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@specweave/figma-adapter':
+      '@mobile-spec-brain/figma-adapter':
         specifier: workspace:*
         version: link:../../packages/figma-adapter
-      '@specweave/storage':
+      '@mobile-spec-brain/storage':
         specifier: workspace:*
         version: link:../../packages/storage
       zod:
@@ -38,7 +38,7 @@ importers:
 
   packages/api-parity:
     dependencies:
-      '@specweave/core':
+      '@mobile-spec-brain/core':
         specifier: workspace:*
         version: link:../core
 
@@ -50,13 +50,13 @@ importers:
 
   packages/figma-adapter:
     dependencies:
-      '@specweave/core':
+      '@mobile-spec-brain/core':
         specifier: workspace:*
         version: link:../core
 
   packages/storage:
     dependencies:
-      '@specweave/core':
+      '@mobile-spec-brain/core':
         specifier: workspace:*
         version: link:../core
       better-sqlite3:

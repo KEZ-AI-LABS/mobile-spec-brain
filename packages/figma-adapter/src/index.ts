@@ -1,4 +1,4 @@
-import { sha256, type RawBlockSnapshot } from "@specweave/core";
+import { sha256, type RawBlockSnapshot } from "@mobile-spec-brain/core";
 
 export interface FigmaNode { id: string; name: string; type: string; children?: FigmaNode[]; interactions?: unknown[]; }
 export interface FigmaDocument { document: FigmaNode; version: string; }

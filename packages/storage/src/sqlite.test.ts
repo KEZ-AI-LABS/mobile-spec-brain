@@ -6,7 +6,7 @@ import { applySourceSync, commitProposal, materializeSpecs, persistEvidence, per
 
 describe("SQLite storage", () => {
   it("migrates and persists append-only events", async () => {
-    const database = openWorkspaceDatabase(join(mkdtempSync(join(tmpdir(), "specweave-")), "workspace.sqlite"));
+    const database = openWorkspaceDatabase(join(mkdtempSync(join(tmpdir(), "mobile-spec-brain-")), "workspace.sqlite"));
     const store = new SqliteEventStore(database);
     await store.append({ id: "evt-1", occurredAt: new Date("2026-01-01T00:00:00Z"), actor: "test", operation: "sync.apply", entityType: "source", entityId: "source:api", evidenceIds: [], reason: "test", payload: {} });
     expect(await store.list("source:api")).toHaveLength(1);
@@ -14,7 +14,7 @@ describe("SQLite storage", () => {
     database.close();
   });
   it("atomically records raw blocks, cursor, and sync event", () => {
-    const database = openWorkspaceDatabase(join(mkdtempSync(join(tmpdir(), "specweave-")), "workspace.sqlite"));
+    const database = openWorkspaceDatabase(join(mkdtempSync(join(tmpdir(), "mobile-spec-brain-")), "workspace.sqlite"));
     database.prepare("INSERT INTO workspaces (id, name, created_at) VALUES ('workspace:test', 'test', '2026-01-01')").run();
     const hash = "a".repeat(64); const now = new Date("2026-01-01T00:00:00Z");
     applySourceSync(database, { actor: "test", source: { id: "source:api", type: "OPENAPI", displayName: "API", configuration: {} }, changeSet: { sourceId: "source:api" as never, sourceType: "OPENAPI", cursor: hash, changes: [{ kind: "ADDED", entityId: "entity:api" as never, revision: hash }], fetchedAt: now }, blocks: [{ id: "block:api" as never, sourceEntityId: "entity:api" as never, revision: hash, contentHash: hash, content: { path: "/transfer" }, metadata: {} }] });

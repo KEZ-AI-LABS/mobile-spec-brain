@@ -10,7 +10,7 @@
     "build": "pnpm --recursive run build",
     "check": "pnpm build && pnpm --recursive run check",
     "test": "pnpm --recursive run test",
-    "specweave": "pnpm --filter @specweave/cli start"
+    "mobile-spec-brain": "pnpm --filter @mobile-spec-brain/cli start"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",

@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
-import { sha256, type Evidence, type RawBlockSnapshot } from "@specweave/core";
+import { sha256, type Evidence, type RawBlockSnapshot } from "@mobile-spec-brain/core";
 export * from "./navigation.js";
 
 export interface ApiOperation { method: string; path: string; statusCodes: string[]; evidence: string; }
