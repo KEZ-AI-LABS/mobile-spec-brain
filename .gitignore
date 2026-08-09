@@ -3,6 +3,8 @@ dist/
 coverage/
 .mobile-spec-brain/
 .specweave/
+.spec-brain/.index/
+.spec-brain/spec/
 *.sqlite
 .env
 .env.*

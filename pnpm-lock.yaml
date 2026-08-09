@@ -20,21 +20,12 @@ importers:
 
   apps/cli:
     dependencies:
-      '@mobile-spec-brain/api-parity':
-        specifier: workspace:*
-        version: link:../../packages/api-parity
       '@mobile-spec-brain/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@mobile-spec-brain/figma-adapter':
-        specifier: workspace:*
-        version: link:../../packages/figma-adapter
       '@mobile-spec-brain/storage':
         specifier: workspace:*
         version: link:../../packages/storage
-      zod:
-        specifier: ^3.24.4
-        version: 3.25.76
 
   packages/api-parity:
     dependencies:

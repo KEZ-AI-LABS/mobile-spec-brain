@@ -1,161 +1,21 @@
 #!/usr/bin/env node
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
-import { applySourceSync, commitProposal, getClaim, getEvidence, getFeature, listFeatureClaims, loadSourceSpecInput, materializeSemanticGraph, openWorkspaceDatabase, persistEvidence, persistFindings, readSyncState, SqliteEventStore } from "@mobile-spec-brain/storage";
-import { checkApiParity, checkNavigationParity, extractImplementationEvidence, extractNavigationEvidence, extractOpenApiEvidence, mobileSnapshots, navigationSnapshots, openApiSnapshots, parseOpenApi, scanMobileRepository, scanNavigation } from "@mobile-spec-brain/api-parity";
-import { buildSourceSpec, enforceSyncSafety, materializeApiSemantics, materializeFigmaSemantics, materializeImplementationSemantics, materializeNavigationSemantics, planBlockSync, renderSourceSpecMarkdown, sha256 } from "@mobile-spec-brain/core";
-import { extractFigmaEvidence, fetchFigmaFile, figmaSnapshots } from "@mobile-spec-brain/figma-adapter";
-import { z } from "zod";
+import { buildSourceSpec, renderSourceSpecMarkdown } from "@mobile-spec-brain/core";
+import { appendFileEvent, claimRecords, coverage, evidenceRecords, initializeFileStore, proposeProfile, readProfile, recordEvidence, reindexFileStore, specBrainDirectory, verifyFileStore, writeClaim } from "@mobile-spec-brain/storage";
 
-const projectRoot = process.env.INIT_CWD ?? process.cwd();
-const workspaceDir = join(projectRoot, ".mobile-spec-brain");
-const databasePath = join(workspaceDir, "workspace.sqlite");
-const configPath = join(workspaceDir, "config.json");
+const projectRoot = process.cwd();
+const root = specBrainDirectory(projectRoot);
+const json = process.argv.includes("--json");
+const [command, subcommand, ...args] = process.argv.slice(2).filter((arg) => arg !== "--json");
+function output(value: unknown): void { console.log(JSON.stringify(value, null, 2)); }
+function requireStore(): boolean { if (existsSync(root)) return true; output({ status: "error", code: "SPEC_BRAIN_NOT_INITIALIZED", message: "Run `spec-brain init` first." }); process.exitCode = 2; return false; }
+function fileArgument(): string | undefined { const index = args.indexOf("--file"); return index >= 0 ? args[index + 1] : undefined; }
 
-function output(value: unknown, json: boolean): void {
-  if (json) console.log(JSON.stringify(value, null, 2));
-  else if (typeof value === "string") console.log(value);
-  else console.log(JSON.stringify(value, null, 2));
-}
+function init(): void { initializeFileStore(projectRoot); const sources = join(root, "sources.json"); if (JSON.parse(readFileSync(sources, "utf8")).length === 0) writeFileSync(sources, JSON.stringify([{ id: "project", root: projectRoot, type: "LOCAL" }], null, 2) + "\n"); output({ status: "initialized", root }); }
+function profile(): void { if (!requireStore()) return; if (subcommand === "read") { output({ status: "complete", profile: readProfile(root) }); return; } if (subcommand === "propose") { const path = fileArgument(); if (!path) throw new Error("Use `spec-brain profile propose --file profile.json`."); output({ status: "proposed", profile: proposeProfile(root, JSON.parse(readFileSync(resolve(projectRoot, path), "utf8")), "agent") }); return; } throw new Error("Use `spec-brain profile read|propose`."); }
+function evidence(): void { if (!requireStore()) return; if (subcommand === "query") { output({ status: "complete", evidence: evidenceRecords(root) }); return; } if (subcommand !== "record") throw new Error("Use `spec-brain evidence record|query`."); const path = fileArgument(); if (!path) throw new Error("Use `spec-brain evidence record --file evidence.json`."); output({ status: "recorded", evidence: recordEvidence(root, JSON.parse(readFileSync(resolve(projectRoot, path), "utf8")), "agent") }); }
+function claim(): void { if (!requireStore()) return; if (subcommand !== "propose" && subcommand !== "supersede") throw new Error("Use `spec-brain claim propose|supersede --file claim.json`."); const path = fileArgument(); if (!path) throw new Error("Use `spec-brain claim ${subcommand} --file claim.json`."); const claim = JSON.parse(readFileSync(resolve(projectRoot, path), "utf8")); output({ status: "recorded", claim: writeClaim(root, claim, "agent") }); }
+function spec(): void { if (!requireStore()) return; if (subcommand !== "render") throw new Error("Use `spec-brain spec render <feature>`. "); const feature = args.find((arg) => !arg.startsWith("--")); if (!feature) throw new Error("Feature is required."); const claims = claimRecords(root).filter((item) => item.feature === feature); const evidenceIds = [...new Set(claims.flatMap((item) => item.evidenceIds))]; if (evidenceIds.length === 0) { output({ status: "complete", feature, unknown: "EVIDENCE_ABSENT" }); return; } const data = buildSourceSpec({ feature: { key: feature, displayName: feature, evidenceIds }, figmaFrames: [], api: [], navigation: { incoming: [], outgoing: [] }, unknowns: [{ field: "api", reason: "EVIDENCE_ABSENT", evidenceIds: [] }, { field: "navigation", reason: "EVIDENCE_ABSENT", evidenceIds: [] }], graphState: { claims } }); const directory = join(root, "spec"); mkdirSync(directory, { recursive: true }); writeFileSync(join(directory, `${feature}.spec.json`), JSON.stringify(data, null, 2) + "\n"); writeFileSync(join(directory, `${feature}.md`), renderSourceSpecMarkdown(data)); output({ status: "rendered", feature, graphHash: data.graphHash }); }
 
-function initialized(): boolean { return existsSync(databasePath) && existsSync(configPath); }
-
-function init(json: boolean): void {
-  mkdirSync(workspaceDir, { recursive: true });
-  const database = openWorkspaceDatabase(databasePath);
-  const workspace = database.prepare("SELECT id, name FROM workspaces LIMIT 1").get() as { id: string; name: string } | undefined;
-  if (!workspace) database.prepare("INSERT INTO workspaces (id, name, created_at) VALUES (?, ?, ?)").run(`workspace:${randomUUID()}`, projectRoot.split("/").at(-1) ?? "mobile-spec-brain", new Date().toISOString());
-  if (!existsSync(configPath)) writeFileSync(configPath, JSON.stringify({ version: 1, sources: [], profiles: ["mobile-generic"] }, null, 2) + "\n");
-  database.close();
-  output({ status: "initialized", workspace: workspaceDir, config: configPath, database: databasePath }, json);
-}
-
-function requireInitialized(json: boolean): boolean {
-  if (initialized()) return true;
-  output({ status: "error", code: "WORKSPACE_NOT_INITIALIZED", message: "Run `mobile-spec-brain init` first." }, json);
-  process.exitCode = 2;
-  return false;
-}
-
-const configSchema = z.object({ version: z.literal(1), profiles: z.array(z.string()).default(["mobile-generic"]), sources: z.array(z.object({ id: z.string().min(1), type: z.enum(["OPENAPI", "ANDROID", "IOS", "FIGMA"]), path: z.string().default(""), fileKey: z.string().optional() })).default([]), featureKey: z.object({ ignoredPathPrefixes: z.array(z.string()).default(["api", "v1", "v2", "v3"]) }).default({ ignoredPathPrefixes: ["api", "v1", "v2", "v3"] }), safety: z.object({ maxClaimInvalidation: z.number().int().positive().optional(), maxSourceChangeRatio: z.number().positive().max(1).optional() }).optional(), mutationPolicy: z.object({ allowedActors: z.array(z.string()).optional(), minimumEvidence: z.number().int().positive().optional() }).optional() });
-type WorkspaceConfig = z.infer<typeof configSchema>; type ConfigSource = WorkspaceConfig["sources"][number];
-function config(): WorkspaceConfig { return configSchema.parse(JSON.parse(readFileSync(configPath, "utf8"))); }
-function sourceSet(): { openapi?: ConfigSource; android?: ConfigSource; ios?: ConfigSource; figma?: ConfigSource } {
-  const sources = config().sources ?? [];
-  return { openapi: sources.find((source) => source.type === "OPENAPI"), android: sources.find((source) => source.type === "ANDROID"), ios: sources.find((source) => source.type === "IOS"), figma: sources.find((source) => source.type === "FIGMA") };
-}
-
-async function sync(plan: boolean, json: boolean): Promise<void> {
-  if (!requireInitialized(json)) return;
-  const sources = config().sources ?? [];
-  if (sources.length === 0) { output({ status: "unavailable", mode: plan ? "PLAN" : "APPLY", code: "NO_SOURCES_CONFIGURED", message: "Configure OPENAPI, ANDROID, and IOS local sources in .mobile-spec-brain/config.json.", configuredSources: 0 }, json); process.exitCode = 3; return; }
-  const inspected = sources.map((source) => ({ id: source.id, type: source.type, path: source.type === "FIGMA" ? source.fileKey ?? "" : resolve(projectRoot, source.path), exists: source.type === "FIGMA" ? Boolean(source.fileKey && process.env.FIGMA_TOKEN) : existsSync(resolve(projectRoot, source.path)) }));
-  const api = sourceSet().openapi;
-  if (api && inspected.every((source) => source.exists)) {
-    const database = openWorkspaceDatabase(databasePath); const sourcePath = resolve(projectRoot, api.path); const blocks = openApiSnapshots(api.id, sourcePath);
-    const cursor = sha256(readFileSync(sourcePath, "utf8")); const state = readSyncState(database, api.id);
-    const planned = planBlockSync(api.id as never, "OPENAPI", cursor, state, blocks);
-    const policyConfig = config() as WorkspaceConfig & { safety?: { maxClaimInvalidation?: number; maxSourceChangeRatio?: number } };
-    enforceSyncSafety({ changedEntities: planned.changeSet.changes.length, knownEntities: state.blocks.size, invalidatedClaims: planned.dirtyBlockIds.length }, { maxClaimInvalidation: policyConfig.safety?.maxClaimInvalidation ?? 500, maxSourceChangeRatio: policyConfig.safety?.maxSourceChangeRatio ?? 0.3 });
-    const mobile = [sourceSet().android, sourceSet().ios].filter((source): source is ConfigSource => Boolean(source));
-    const mobilePlans = mobile.map((source) => { const platform = source.type === "ANDROID" ? "android" : "ios" as const; const apiSnapshots = mobileSnapshots(source.id, resolve(projectRoot, source.path), platform); const navigationSnapshot = navigationSnapshots(source.id, resolve(projectRoot, source.path), platform); const snapshot = [...apiSnapshots, ...navigationSnapshot]; const state = readSyncState(database, source.id); const cursor = sha256(JSON.stringify(snapshot.map((item) => item.contentHash))); return { source, platform, apiSnapshots, navigationSnapshot, snapshot, planned: planBlockSync(source.id as never, "LOCAL_GIT", cursor, state, snapshot) }; });
-    if (!plan) {
-      const evidence = extractOpenApiEvidence(api.id, blocks); applySourceSync(database, { source: { id: api.id, type: "OPENAPI", displayName: api.id, configuration: { path: api.path } }, changeSet: planned.changeSet, blocks, actor: "cli" }); persistEvidence(database, evidence); materializeSemanticGraph(database, materializeApiSemantics(evidence, config().featureKey), "cli");
-      for (const item of mobilePlans) { const implementation = extractImplementationEvidence(item.apiSnapshots); const navigationEvidence = extractNavigationEvidence(item.navigationSnapshot); applySourceSync(database, { source: { id: item.source.id, type: "LOCAL_GIT", displayName: item.source.id, configuration: { path: item.source.path, platform: item.platform } }, changeSet: item.planned.changeSet, blocks: item.snapshot, actor: "cli" }); persistEvidence(database, implementation); persistEvidence(database, navigationEvidence); materializeSemanticGraph(database, materializeImplementationSemantics(implementation, config().featureKey), "cli"); materializeSemanticGraph(database, materializeNavigationSemantics(navigationEvidence), "cli"); }
-      const figma = sourceSet().figma;
-      if (figma?.fileKey && process.env.FIGMA_TOKEN) { const document = await fetchFigmaFile(figma.fileKey, process.env.FIGMA_TOKEN); const snapshots = figmaSnapshots(figma.id, document); const previous = readSyncState(database, figma.id); const figmaPlan = planBlockSync(figma.id as never, "FIGMA", document.version, previous, snapshots); const figmaEvidence = extractFigmaEvidence(snapshots); applySourceSync(database, { source: { id: figma.id, type: "FIGMA", displayName: figma.id, configuration: { fileKey: figma.fileKey } }, changeSet: figmaPlan.changeSet, blocks: snapshots, actor: "cli" }); persistEvidence(database, figmaEvidence); materializeSemanticGraph(database, materializeFigmaSemantics(figmaEvidence), "cli"); }
-    }
-    database.close();
-    output({ status: plan ? "planned" : "synchronized", mode: plan ? "PLAN" : "APPLY", sources: inspected, changes: planned.changeSet.changes.length + mobilePlans.reduce((sum, item) => sum + item.planned.changeSet.changes.length, 0), dirtyBlocks: planned.dirtyBlockIds.length + mobilePlans.reduce((sum, item) => sum + item.planned.dirtyBlockIds.length, 0) }, json);
-    return;
-  }
-  output({ status: inspected.every((source) => source.exists) ? (plan ? "planned" : "synchronized") : "error", mode: plan ? "PLAN" : "APPLY", sources: inspected, message: "No OpenAPI source configured for evidence persistence." }, json);
-  if (inspected.some((source) => !source.exists)) process.exitCode = 2;
-}
-
-function check(json: boolean): void {
-  if (!requireInitialized(json)) return;
-  const { openapi, android, ios } = sourceSet();
-  if (!openapi || !android || !ios) { output({ status: "unavailable", code: "API_PARITY_SOURCES_REQUIRED", message: "Configure one OPENAPI, ANDROID, and IOS source before API parity can run." }, json); process.exitCode = 3; return; }
-  try {
-    const operations = parseOpenApi(resolve(projectRoot, openapi.path));
-    const androidEvidence = scanMobileRepository(resolve(projectRoot, android.path), "android");
-    const iosEvidence = scanMobileRepository(resolve(projectRoot, ios.path), "ios");
-    const findings = checkApiParity(operations, androidEvidence, iosEvidence);
-    const navigationFindings = checkNavigationParity(scanNavigation(resolve(projectRoot, android.path), "android"), scanNavigation(resolve(projectRoot, ios.path), "ios"));
-    const database = openWorkspaceDatabase(databasePath); persistFindings(database, [...findings.map((finding) => ({ id: `finding:${finding.id}`, type: finding.type, featureKey: finding.operation.path.split("/").filter(Boolean)[0] ?? "root", explanation: finding })), ...navigationFindings.map((finding) => ({ id: `finding:${finding.id}`, type: finding.type, featureKey: finding.route.split("/").filter(Boolean)[0] ?? "root", explanation: finding }))]); database.close();
-    output({ status: "complete", rules: ["api-parity", "navigation-parity"], operations: operations.length, evidence: { android: androidEvidence.length, ios: iosEvidence.length }, findings: [...findings, ...navigationFindings] }, json);
-  } catch (error) { output({ status: "error", code: "API_PARITY_INPUT_INVALID", message: error instanceof Error ? error.message : String(error) }, json); process.exitCode = 2; }
-}
-
-function doctor(json: boolean): void {
-  if (!requireInitialized(json)) return;
-  const database = openWorkspaceDatabase(databasePath);
-  const migrations = database.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: string }[];
-  database.close();
-  output({ status: "healthy", database: databasePath, migrations: migrations.map(({ version }) => version), capabilities: ["workspace initialization", "SQLite migrations", "append-only events", "API parity evidence scan"] }, json);
-}
-
-function propose(args: string[], json: boolean): void {
-  if (!requireInitialized(json)) return;
-  const fileIndex = args.indexOf("--file"); const proposalPath = fileIndex >= 0 ? args[fileIndex + 1] : undefined;
-  if (!proposalPath) { output({ status: "error", code: "PROPOSAL_FILE_REQUIRED", message: "Use `mobile-spec-brain propose --file proposal.json`." }, json); process.exitCode = 2; return; }
-  try {
-    const proposal = JSON.parse(readFileSync(resolve(projectRoot, proposalPath), "utf8")); const database = openWorkspaceDatabase(databasePath);
-    const actors = config() as WorkspaceConfig & { mutationPolicy?: { allowedActors?: string[]; minimumEvidence?: number } };
-    const accepted = commitProposal(database, proposal, { allowedActors: actors.mutationPolicy?.allowedActors ?? ["reviewer"], minimumEvidence: actors.mutationPolicy?.minimumEvidence ?? 1 }); database.close();
-    output({ status: "accepted", proposal: accepted }, json);
-  } catch (error) { output({ status: "rejected", code: "PROPOSAL_REJECTED", message: error instanceof Error ? error.message : String(error) }, json); process.exitCode = 2; }
-}
-async function readCommand(kind: "feature" | "claim" | "evidence" | "history", id: string | undefined, json: boolean): Promise<void> {
-  if (!requireInitialized(json)) return;
-  if (!id) { output({ status: "error", code: "IDENTIFIER_REQUIRED" }, json); process.exitCode = 2; return; }
-  const database = openWorkspaceDatabase(databasePath);
-  const value = kind === "feature" ? getFeature(database, id) : kind === "claim" ? getClaim(database, id) : kind === "evidence" ? getEvidence(database, id) : await new SqliteEventStore(database).list(id);
-  database.close(); output({ status: "complete", [kind]: value }, json);
-}
-function renderWiki(json: boolean): void {
-  if (!requireInitialized(json)) return;
-  const database = openWorkspaceDatabase(databasePath); const rows = listFeatureClaims(database); database.close();
-  const byFeature = Map.groupBy(rows, (row) => row.feature); const wikiDir = join(workspaceDir, "wiki"); mkdirSync(wikiDir, { recursive: true });
-  for (const [feature, claims] of byFeature) { if (!feature) continue; const body = [`# ${claims?.[0]?.displayName ?? feature}`, "", "> Generated by Mobile Spec Brain. Do not edit directly.", "", "## Claims", "", ...(claims ?? []).map((claim) => `- \`${claim.predicate}\` — ${claim.object} (confidence: ${claim.confidence})`), ""].join("\n"); writeFileSync(join(wikiDir, `${feature}.md`), body); }
-  output({ status: "rendered", directory: wikiDir, features: byFeature.size }, json);
-}
-function renderSpec(args: string[], json: boolean): void {
-  if (!requireInitialized(json)) return;
-  const all = args.includes("--all");
-  const feature = args.find((arg) => !arg.startsWith("--"));
-  if (!all && !feature) { output({ status: "error", code: "FEATURE_REQUIRED", message: "Use `mobile-spec-brain spec <feature>` or `mobile-spec-brain spec --all`." }, json); process.exitCode = 2; return; }
-  const database = openWorkspaceDatabase(databasePath);
-  const features = all ? [...new Set(listFeatureClaims(database).map((item) => item.feature))] : [feature!];
-  const outputDir = join(workspaceDir, "spec"); mkdirSync(outputDir, { recursive: true });
-  const rendered: unknown[] = [];
-  for (const key of features) {
-    const input = loadSourceSpecInput(database, key);
-    if (!input) { rendered.push({ feature: key, status: "unavailable", code: "FEATURE_NOT_FOUND" }); continue; }
-    const spec = buildSourceSpec(input); const sectionIndex = args.indexOf("--section"); const section = sectionIndex >= 0 ? args[sectionIndex + 1] : undefined;
-    writeFileSync(join(outputDir, `${key}.spec.json`), JSON.stringify(spec, null, 2) + "\n"); writeFileSync(join(outputDir, `${key}.md`), renderSourceSpecMarkdown(spec));
-    rendered.push(section && ["api", "navigation", "unknowns"].includes(section) ? { feature: key, graphHash: spec.graphHash, [section]: spec[section as "api" | "navigation" | "unknowns"] } : { feature: key, status: "rendered", json: join(outputDir, `${key}.spec.json`), markdown: join(outputDir, `${key}.md`), completeness: spec.completeness });
-  }
-  database.close(); output(all ? { status: "complete", specs: rendered } : rendered[0], json);
-}
-
-const [command, ...args] = process.argv.slice(2);
-const json = args.includes("--json");
-switch (command) {
-  case "init": init(json); break;
-  case "sync": await sync(args.includes("--plan"), json); break;
-  case "check": check(json); break;
-  case "doctor": doctor(json); break;
-  case "propose": propose(args, json); break;
-  case "feature": await readCommand("feature", args.find((arg) => !arg.startsWith("--")), json); break;
-  case "claim": await readCommand("claim", args.find((arg) => !arg.startsWith("--")), json); break;
-  case "spec": renderSpec(args, json); break;
-  case "evidence": await readCommand("evidence", args.find((arg) => !arg.startsWith("--")), json); break;
-  case "history": await readCommand("history", args.find((arg) => !arg.startsWith("--")), json); break;
-  case "wiki": renderWiki(json); break;
-  default:
-    console.log("Usage: mobile-spec-brain <init|sync|check|doctor|propose|feature|claim|spec|evidence|history|wiki> [--plan] [--json]");
-    process.exitCode = command ? 2 : 0;
-}
+try { if (command === "init") init(); else if (command === "profile") profile(); else if (command === "evidence") evidence(); else if (command === "claim") claim(); else if (command === "verify") { if (requireStore()) output({ status: "complete", ...verifyFileStore(root, "verifier") }); } else if (command === "reindex") { if (requireStore()) output({ status: "complete", ...reindexFileStore(root) }); } else if (command === "coverage") { if (requireStore()) output({ status: "complete", coverage: coverage(root) }); } else if (command === "spec") spec(); else { console.log("Usage: spec-brain <init|profile|evidence|claim|verify|reindex|coverage|spec> [--json]"); process.exitCode = 2; } } catch (error) { output({ status: "error", message: error instanceof Error ? error.message : String(error) }); process.exitCode = 2; }
