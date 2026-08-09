@@ -4,7 +4,9 @@ import { z } from "zod";
 export const citationSchema = z.object({
   sourceId: z.string().min(1),
   path: z.string().min(1),
-  range: z.tuple([z.number().int().positive(), z.number().int().positive()]).refine(([start, end]) => start <= end, "Citation range must be ordered."),
+  range: z
+    .tuple([z.number().int().positive(), z.number().int().positive()])
+    .refine(([start, end]) => start <= end, "Citation range must be ordered."),
   contentHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   revision: z.string().min(1),
 });
@@ -15,7 +17,13 @@ export const fileEvidenceSchema = z.object({
   citation: citationSchema,
   kind: z.string().min(1),
   observation: z.record(z.unknown()),
-  extractor: z.object({ id: z.string().min(1), version: z.string().min(1), model: z.string().optional(), promptVersion: z.string().optional(), cacheKey: z.string().optional() }),
+  extractor: z.object({
+    id: z.string().min(1),
+    version: z.string().min(1),
+    model: z.string().optional(),
+    promptVersion: z.string().optional(),
+    cacheKey: z.string().optional(),
+  }),
   confidence: z.number().min(0).max(1),
   authority: z.number().min(0).max(1),
   state: z.enum(["ACTIVE", "STALE", "ORPHANED", "INVALIDATED"]),
@@ -38,6 +46,14 @@ export type FileClaim = z.infer<typeof fileClaimSchema>;
 export const sourceSchema = z.object({ id: z.string().min(1), root: z.string().min(1), type: z.string().min(1) });
 export type Source = z.infer<typeof sourceSchema>;
 
-export const profileEntrySchema = z.object({ key: z.string().min(1), value: z.unknown(), citations: z.array(citationSchema).min(1) });
-export const profileSchema = z.object({ status: z.enum(["PROPOSED", "APPROVED"]), entries: z.array(profileEntrySchema).default([]), updatedAt: z.string().datetime() });
+export const profileEntrySchema = z.object({
+  key: z.string().min(1),
+  value: z.unknown(),
+  citations: z.array(citationSchema).min(1),
+});
+export const profileSchema = z.object({
+  status: z.enum(["PROPOSED", "APPROVED"]),
+  entries: z.array(profileEntrySchema).default([]),
+  updatedAt: z.string().datetime(),
+});
 export type ProjectProfile = z.infer<typeof profileSchema>;

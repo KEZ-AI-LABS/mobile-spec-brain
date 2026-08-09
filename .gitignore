@@ -1,10 +1,7 @@
 node_modules/
 dist/
 coverage/
-.spec-brain/.index/
 .spec-brain/spec/
-.specweave/
-*.sqlite
 .env
 .env.*
 !.env.example
@@ -14,3 +11,6 @@ coverage/
 .vscode/
 *.log
 *.tsbuildinfo
+
+# Leftover local artifacts from the pre-rename SpecWeave prototype.
+.specweave/
