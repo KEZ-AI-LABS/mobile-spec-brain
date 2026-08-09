@@ -1,0 +1,29 @@
+name: Feature request
+description: Propose an evidence-first capability or workflow improvement.
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the mobile delivery or alignment problem, not only a solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed direction
+      description: Explain the smallest useful change and its Evidence/provenance implications.
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Likely scope
+      options:
+        - Semantic core
+        - Source adapter
+        - Parity rule
+        - CLI or wiki view
+        - Documentation

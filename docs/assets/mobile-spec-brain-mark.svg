@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Mobile Spec Brain</title>
+  <desc id="desc">An abstract mobile device framing a connected semantic graph.</desc>
+  <defs>
+    <linearGradient id="surface" x1="16" y1="12" x2="112" y2="116" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#171B38"/>
+      <stop offset="1" stop-color="#28205D"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="30" y1="20" x2="98" y2="102" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#68E5FF"/>
+      <stop offset="1" stop-color="#9B7BFF"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="30" fill="url(#surface)"/>
+  <rect x="35" y="16" width="58" height="96" rx="15" fill="#0D1025" stroke="#5B5D85" stroke-width="3"/>
+  <rect x="43" y="30" width="42" height="64" rx="8" fill="#151B3D"/>
+  <path d="M54 48 68 40l13 10M50 72l18-14 12 11" fill="none" stroke="url(#signal)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M54 48 50 72M68 40v18M80 50v19M68 58l12 11" fill="none" stroke="#7894D6" stroke-width="2" opacity=".85"/>
+  <circle cx="54" cy="48" r="5" fill="#68E5FF"/>
+  <circle cx="68" cy="40" r="5" fill="#9B7BFF"/>
+  <circle cx="81" cy="50" r="5" fill="#68E5FF"/>
+  <circle cx="50" cy="72" r="5" fill="#9B7BFF"/>
+  <circle cx="68" cy="58" r="5" fill="#68E5FF"/>
+  <circle cx="80" cy="69" r="5" fill="#9B7BFF"/>
+  <rect x="58" y="101" width="12" height="3" rx="1.5" fill="#777AA6"/>
+</svg>
