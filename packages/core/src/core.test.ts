@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canRead, enforceSyncSafety, extractionCacheKey, InMemoryEventStore, materializeApiSemantics, planBlockSync, propagateDirty, resolveEvidence, validateMutation } from "./index.js";
+import { buildSourceSpec, canRead, deriveFeatureKey, enforceSyncSafety, extractionCacheKey, InMemoryEventStore, materializeApiSemantics, planBlockSync, propagateDirty, renderSourceSpecMarkdown, resolveEvidence, validateMutation } from "./index.js";
 
 describe("foundational primitives", () => {
   it("creates deterministic cache keys that change with extractor input", () => {
@@ -30,6 +30,18 @@ describe("foundational primitives", () => {
     const result = materializeApiSemantics([{ id: "evidence:transfer" as never, kind: "API_CONTRACT", subject: "api.POST./transfer", predicate: "defines", value: { method: "POST", path: "/transfer", statusCodes: ["200"] }, extractionConfidence: 1, authority: 1, provenance: { sourceEntityId: "entity:api" as never, rawBlockId: "block:api" as never, revision: "1", extractorId: "test", extractorVersion: "1" } }]);
     expect(result.entities).toMatchObject([{ id: "entity:feature:transfer", type: "feature" }, { type: "api_operation" }]);
     expect(result.claims).toMatchObject([{ predicate: "exposes_api" }]);
+  });
+  it("derives feature keys from tags before ignoring API version prefixes", () => {
+    expect(deriveFeatureKey({ path: "/api/v1/accounts", tags: ["Accounts"] })).toBe("accounts");
+    expect(deriveFeatureKey({ path: "/api/v1/accounts" })).toBe("accounts");
+    expect(deriveFeatureKey({ path: "/internal/payments" }, { ignoredPathPrefixes: ["internal"] })).toBe("payments");
+  });
+  it("renders a byte-stable source spec and keeps unknowns explicit", () => {
+    const input: Parameters<typeof buildSourceSpec>[0] = { feature: { key: "accounts", displayName: "Accounts", evidenceIds: ["evidence:api"] }, figmaFrames: [], api: [{ method: "GET", path: "/api/v1/accounts/{accountId}", normalizedPath: "/api/v1/accounts/{0}", deprecated: false, parameters: [{ name: "accountId", location: "path", required: true, schema: { type: "string" } }], requestBody: { status: "UNKNOWN", reason: "REQUEST_BODY_NOT_DECLARED" }, responses: { "200": { schema: { type: "object" } }, "404": { schema: { status: "UNKNOWN", reason: "SCHEMA_NOT_DECLARED" } } }, evidenceIds: ["evidence:api"], implementations: [{ platform: "android", status: "IMPLEMENTED", location: "android:AccountsApi.kt:12", evidenceIds: ["evidence:android"] }, { platform: "ios", status: "UNKNOWN", reason: "EVIDENCE_ABSENT", evidenceIds: [] }] }], navigation: { incoming: [], outgoing: [] }, unknowns: [{ field: "figmaFrames", reason: "EVIDENCE_ABSENT", evidenceIds: [] }], graphState: { claims: ["claim:one"] } };
+    const first = buildSourceSpec(input); const second = buildSourceSpec(input);
+    expect(JSON.stringify(first)).toBe(JSON.stringify(second));
+    expect(renderSourceSpecMarkdown(first)).toContain("EVIDENCE_ABSENT");
+    expect(first.api[0]!.responses["200"]!.schema).toEqual({ type: "object" });
   });
   it("rejects generic or evidence-free mutations", () => {
     const policy = { allowedActors: ["reviewer"], minimumEvidence: 1 };

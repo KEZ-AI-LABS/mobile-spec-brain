@@ -94,6 +94,11 @@ pnpm mobile-spec-brain evidence evidence:example --json
 
 # Render the read-only wiki.
 pnpm mobile-spec-brain wiki --json
+
+# Generate a development-start source spec from graph claims and Evidence.
+pnpm mobile-spec-brain spec accounts --json
+pnpm mobile-spec-brain spec --all
+pnpm mobile-spec-brain spec accounts --section api --json
 ```
 
 To make a governed change, submit a JSON proposal that references Evidence already in the workspace. The supported low-level operations are `entity.propose`, `claim.propose`, `claim.supersede`, `relation.propose`, `evidence.attach`, and `evidence.invalidate`.
@@ -101,6 +106,8 @@ To make a governed change, submit a JSON proposal that references Evidence alrea
 ```sh
 pnpm mobile-spec-brain propose --file proposal.json --json
 ```
+
+`spec` writes `.mobile-spec-brain/spec/<feature>.spec.json` for coding agents and `.mobile-spec-brain/spec/<feature>.md` for review. Both are deterministic views of the same graph state, include a graph hash, and keep missing or conflicting information as `UNKNOWN` with its reason—never guessed values.
 
 ## Project map
 
@@ -135,4 +142,8 @@ Before opening a change, read [CONTRIBUTING.md](CONTRIBUTING.md). To report a se
 
 ## Status
 
-This is an actively developed pre-release project. The repository currently proves local extraction, semantic persistence, parity checks, and CLI workflows through automated checks. It does not claim production rollout, hosted synchronization, or human-review operations that have not been demonstrated.
+This is an actively developed pre-release project. Automated CLI e2e coverage proves local extraction, semantic persistence, parity checks, unchanged re-sync, source-spec rendering, and wiki rendering. It does not claim production rollout, hosted synchronization, or human-review operations that have not been demonstrated.
+
+## License
+
+[MIT](LICENSE)

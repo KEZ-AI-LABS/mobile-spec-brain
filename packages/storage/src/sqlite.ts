@@ -1,13 +1,13 @@
 import Database from "better-sqlite3";
-import { validateMutation, type ChangeSet, type DomainEvent, type Evidence, type EventStore, type MutationPolicy, type MutationProposal, type RawBlockSnapshot, type SemanticGraphDelta, type SourceDescriptor } from "@mobile-spec-brain/core";
+import { randomUUID } from "node:crypto";
+import { validateMutation, type ChangeSet, type DomainEvent, type Evidence, type EventStore, type MutationPolicy, type MutationProposal, type RawBlockSnapshot, type SemanticGraphDelta, type SourceDescriptor, type SourceSpecInput } from "@mobile-spec-brain/core";
 import { z } from "zod";
-import { initialMigration } from "./migration.js";
+import { runMigrations } from "./migration-runner.js";
 
 export function openWorkspaceDatabase(path: string): Database.Database {
   const database = new Database(path);
   database.pragma("foreign_keys = ON");
-  database.exec(initialMigration);
-  database.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)").run("001_semantic_graph", new Date().toISOString());
+  runMigrations(database);
   return database;
 }
 
@@ -29,7 +29,7 @@ export interface AppliedSourceSync { source: SourceDescriptor; changeSet: Change
 
 export function readSyncState(database: Database.Database, sourceId: string): { cursor?: string; blocks: Map<string, string> } {
   const cursor = (database.prepare("SELECT cursor FROM sync_cursors WHERE source_id = ?").get(sourceId) as { cursor?: string } | undefined)?.cursor;
-  const rows = database.prepare("SELECT b.external_id, b.content_hash FROM raw_blocks b JOIN raw_revisions r ON r.id = b.raw_revision_id JOIN source_entities e ON e.id = r.source_entity_id WHERE e.source_id = ? ORDER BY rowid").all(sourceId) as { external_id: string; content_hash: string }[];
+  const rows = database.prepare("SELECT b.external_id, b.content_hash FROM raw_blocks b JOIN raw_revisions r ON r.id = b.raw_revision_id JOIN source_entities e ON e.id = r.source_entity_id WHERE e.source_id = ? ORDER BY b.rowid").all(sourceId) as { external_id: string; content_hash: string }[];
   return { cursor, blocks: new Map(rows.map((row) => [row.external_id, row.content_hash])) };
 }
 
@@ -52,7 +52,7 @@ export function applySourceSync(database: Database.Database, input: AppliedSourc
     database.prepare("INSERT INTO sync_cursors (source_id, cursor, updated_at) VALUES (?, ?, ?) ON CONFLICT(source_id) DO UPDATE SET cursor = excluded.cursor, updated_at = excluded.updated_at")
       .run(input.source.id, input.changeSet.cursor, input.changeSet.fetchedAt.toISOString());
     database.prepare("INSERT INTO events (id, occurred_at, actor, operation, entity_type, entity_id, evidence_ids_json, reason, payload_json) VALUES (?, ?, ?, 'sync.apply', 'source', ?, '[]', 'source snapshot applied', ?)")
-      .run(`event:sync:${input.source.id}:${input.changeSet.cursor}`, input.changeSet.fetchedAt.toISOString(), input.actor, input.source.id, JSON.stringify({ changed: input.changeSet.changes.length, blocks: input.blocks.length }));
+      .run(`event:sync:${randomUUID()}`, input.changeSet.fetchedAt.toISOString(), input.actor, input.source.id, JSON.stringify({ cursor: input.changeSet.cursor, changed: input.changeSet.changes.length, blocks: input.blocks.length }));
   });
   apply();
 }
@@ -88,7 +88,7 @@ export function materializeSemanticGraph(database: Database.Database, graph: Sem
       database.prepare("INSERT OR IGNORE INTO semantic_relations (id, from_id, type, to_id, state, created_at) VALUES (?, ?, ?, ?, 'ACTIVE', ?)").run(relation.id, relation.fromId, relation.type, relation.toId, now);
       for (const evidenceId of relation.evidenceIds) database.prepare("INSERT OR IGNORE INTO relation_evidence (relation_id, evidence_id) VALUES (?, ?)").run(relation.id, evidenceId);
     }
-    database.prepare("INSERT OR IGNORE INTO events (id, occurred_at, actor, operation, entity_type, entity_id, evidence_ids_json, reason, payload_json) VALUES (?, ?, ?, 'graph.materialize', 'semantic_graph', ?, ?, 'deterministic evidence materialization', ?)").run(`event:graph:${graph.claims.map((claim) => claim.id).join(",")}`, now, actor, "semantic:graph", JSON.stringify(graph.claims.flatMap((claim) => claim.evidenceIds)), JSON.stringify({ entities: graph.entities.length, claims: graph.claims.length, relations: graph.relations.length }));
+    database.prepare("INSERT INTO events (id, occurred_at, actor, operation, entity_type, entity_id, evidence_ids_json, reason, payload_json) VALUES (?, ?, ?, 'graph.materialize', 'semantic_graph', ?, ?, 'deterministic evidence materialization', ?)").run(`event:graph:${randomUUID()}`, now, actor, "semantic:graph", JSON.stringify(graph.claims.flatMap((claim) => claim.evidenceIds)), JSON.stringify({ entities: graph.entities.length, claims: graph.claims.length, relations: graph.relations.length }));
   })();
 }
 
@@ -173,4 +173,31 @@ export function getEvidence(database: Database.Database, id: string): unknown {
 }
 export function listFeatureClaims(database: Database.Database): { feature: string; displayName: string; predicate: string; object: string; confidence: number }[] {
   return database.prepare("SELECT json_extract(e.attributes_json, '$.canonicalKey') AS feature, coalesce(json_extract(e.attributes_json, '$.displayName'), json_extract(e.attributes_json, '$.canonicalKey')) AS displayName, c.predicate, c.object_json AS object, c.confidence FROM semantic_entities e JOIN claims c ON c.subject_id = e.id WHERE e.type = 'feature' ORDER BY feature, c.created_at DESC").all() as { feature: string; displayName: string; predicate: string; object: string; confidence: number }[];
+}
+
+function evidenceIdsForEntity(database: Database.Database, entityId: string): string[] {
+  return (database.prepare("SELECT evidence_id FROM entity_evidence WHERE entity_id = ? ORDER BY evidence_id").all(entityId) as { evidence_id: string }[]).map((row) => row.evidence_id);
+}
+
+/** Reads graph records only; the core package turns this into a deterministic source-spec view. */
+export function loadSourceSpecInput(database: Database.Database, featureKey: string): SourceSpecInput | undefined {
+  const feature = database.prepare("SELECT id, attributes_json FROM semantic_entities WHERE id = ? AND type = 'feature'").get(`entity:feature:${featureKey}`) as { id: string; attributes_json: string } | undefined;
+  if (!feature) return undefined;
+  const featureAttributes = JSON.parse(feature.attributes_json) as { canonicalKey?: string; displayName?: string };
+  const apiRows = database.prepare("SELECT target.id, target.attributes_json FROM semantic_relations relation JOIN semantic_entities target ON target.id = relation.to_id WHERE relation.from_id = ? AND relation.type = 'exposes_api' ORDER BY target.id").all(feature.id) as { id: string; attributes_json: string }[];
+  const api = apiRows.map((row) => {
+    const operation = JSON.parse(row.attributes_json) as Record<string, unknown>;
+    const implementations: { platform: "android" | "ios"; status: "IMPLEMENTED" | "UNKNOWN"; location?: string; returnType?: string; evidenceIds: string[]; reason?: string }[] = (database.prepare("SELECT implementation.id, implementation.attributes_json FROM semantic_relations relation JOIN semantic_entities implementation ON implementation.id = relation.from_id WHERE relation.to_id = ? AND relation.type = 'implements_api' ORDER BY implementation.id").all(row.id) as { id: string; attributes_json: string }[]).map((implementation) => {
+      const value = JSON.parse(implementation.attributes_json) as { platform: "android" | "ios"; evidence: string; returnType?: string };
+      return { platform: value.platform, status: "IMPLEMENTED" as const, location: value.evidence, returnType: value.returnType, evidenceIds: evidenceIdsForEntity(database, implementation.id) };
+    });
+    for (const platform of ["android", "ios"] as const) if (!implementations.some((item) => item.platform === platform)) implementations.push({ platform, status: "UNKNOWN" as const, reason: "EVIDENCE_ABSENT", evidenceIds: [] });
+    return { method: String(operation.method), path: String(operation.path), normalizedPath: String(operation.normalizedPath ?? operation.path), operationId: typeof operation.operationId === "string" ? operation.operationId : undefined, summary: typeof operation.summary === "string" ? operation.summary : undefined, description: typeof operation.description === "string" ? operation.description : undefined, deprecated: operation.deprecated === true, parameters: Array.isArray(operation.parameters) ? operation.parameters : [], requestBody: operation.requestBody, responses: (operation.responses ?? {}) as Record<string, { description?: string; schema: unknown }>, evidenceIds: evidenceIdsForEntity(database, row.id), implementations };
+  });
+  const figmaFrames = (database.prepare("SELECT frame.id, frame.attributes_json FROM semantic_relations relation JOIN semantic_entities frame ON frame.id = relation.to_id WHERE relation.from_id = ? AND relation.type = 'has_figma_frame' ORDER BY frame.id").all(feature.id) as { id: string; attributes_json: string }[]).map((frame) => { const value = JSON.parse(frame.attributes_json) as { nodeId: string; name: string }; return { nodeId: value.nodeId, name: value.name, evidenceIds: evidenceIdsForEntity(database, frame.id) }; });
+  const navigation = (database.prepare("SELECT route.id, route.attributes_json FROM semantic_relations relation JOIN semantic_entities route ON route.id = relation.to_id WHERE relation.from_id = ? AND relation.type = 'has_navigation' ORDER BY route.id").all(feature.id) as { id: string; attributes_json: string }[]).map((route) => { const value = JSON.parse(route.attributes_json) as { route: string; platform: string }; return { route: value.route, platform: value.platform, evidenceIds: evidenceIdsForEntity(database, route.id) }; });
+  const unknowns = [] as { field: string; reason: "EVIDENCE_ABSENT"; evidenceIds: string[] }[];
+  if (figmaFrames.length === 0) unknowns.unshift({ field: "figmaFrames", reason: "EVIDENCE_ABSENT" as const, evidenceIds: [] });
+  if (navigation.length === 0) unknowns.push({ field: "navigation", reason: "EVIDENCE_ABSENT" as const, evidenceIds: [] });
+  return { feature: { key: featureAttributes.canonicalKey ?? featureKey, displayName: featureAttributes.displayName ?? featureKey, evidenceIds: evidenceIdsForEntity(database, feature.id) }, figmaFrames, api, navigation: { incoming: navigation, outgoing: [] }, unknowns, graphState: { feature: feature.id, api: api.map((item) => ({ method: item.method, normalizedPath: item.normalizedPath, evidenceIds: item.evidenceIds, implementations: item.implementations })), figmaFrames, navigation } };
 }

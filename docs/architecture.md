@@ -9,7 +9,7 @@
 The foundation separates the following layers so source-specific work cannot leak into resolution or policy:
 
 ```text
-SourceAdapter -> ChangeSet -> Raw revisions / blocks -> Evidence -> Semantic graph -> Findings / Wiki
+SourceAdapter -> ChangeSet -> Raw revisions / blocks -> Evidence -> Semantic graph -> Findings / Source spec / Wiki
                                       |                    |              |
                                       +-> append-only events+--------------+
 ```
@@ -29,6 +29,8 @@ An extractor can introduce a previously unseen entity type, predicate, or relati
 ## Domain packs and views
 
 Domain packs may supply known concepts, extractors, rules, and wiki views, but they cannot weaken graph integrity. A “specification” is a selected valid set of Claims, not a separately stored fixed object. The built-in wiki is a deterministic read-only view; an AI composer may later propose alternate grouping or narrative, never write arbitrary files or database records directly.
+
+The CLI `spec` command is the development-start source-spec view. It selects graph relationships and their Evidence into paired JSON and Markdown files, includes the canonical graph-state hash, and preserves unresolved fields as `UNKNOWN`. These files are generated under `.mobile-spec-brain/spec/`; they are not mutable source data.
 
 ## Safety boundaries
 

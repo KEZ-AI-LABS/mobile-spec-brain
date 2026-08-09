@@ -1,10 +1,11 @@
 {
   "name": "@mobile-spec-brain/storage",
+  "license": "MIT",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": { ".": "./dist/index.js" },
-  "scripts": { "build": "tsc -p tsconfig.json", "check": "tsc --noEmit -p tsconfig.json", "test": "vitest run" },
+  "scripts": { "build": "tsc -p tsconfig.json && cp -R src/migrations dist/migrations", "check": "tsc --noEmit -p tsconfig.json", "test": "vitest run" },
   "dependencies": { "@mobile-spec-brain/core": "workspace:*", "better-sqlite3": "^12.2.0", "zod": "^3.24.4" },
   "devDependencies": { "@types/better-sqlite3": "^7.6.13" }
 }

@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { applySourceSync, commitProposal, materializeSemanticGraph, persistEvidence, persistFindings, SqliteEventStore, openWorkspaceDatabase } from "./index.js";
+import { applySourceSync, commitProposal, materializeSemanticGraph, persistEvidence, readSyncState, SqliteEventStore, openWorkspaceDatabase } from "./index.js";
 
 describe("SQLite storage", () => {
   it("migrates and persists append-only events", async () => {
@@ -13,13 +13,16 @@ describe("SQLite storage", () => {
     expect(database.prepare("SELECT version FROM schema_migrations ORDER BY version").all()).toEqual([{ version: "001_semantic_graph" }]);
     database.close();
   });
-  it("atomically records raw blocks, cursor, and sync event", () => {
+  it("reads synced blocks and appends a new event for an unchanged re-sync", () => {
     const database = openWorkspaceDatabase(join(mkdtempSync(join(tmpdir(), "mobile-spec-brain-")), "workspace.sqlite"));
     database.prepare("INSERT INTO workspaces (id, name, created_at) VALUES ('workspace:test', 'test', '2026-01-01')").run();
     const hash = "a".repeat(64); const now = new Date("2026-01-01T00:00:00Z");
     applySourceSync(database, { actor: "test", source: { id: "source:api", type: "OPENAPI", displayName: "API", configuration: {} }, changeSet: { sourceId: "source:api" as never, sourceType: "OPENAPI", cursor: hash, changes: [{ kind: "ADDED", entityId: "entity:api" as never, revision: hash }], fetchedAt: now }, blocks: [{ id: "block:api" as never, sourceEntityId: "entity:api" as never, revision: hash, contentHash: hash, content: { path: "/transfer" }, metadata: {} }] });
     expect(database.prepare("SELECT cursor FROM sync_cursors").all()).toEqual([{ cursor: hash }]);
     expect(database.prepare("SELECT external_id FROM raw_blocks").all()).toEqual([{ external_id: "block:api" }]);
+    expect(readSyncState(database, "source:api").blocks).toEqual(new Map([["block:api", hash]]));
+    applySourceSync(database, { actor: "test", source: { id: "source:api", type: "OPENAPI", displayName: "API", configuration: {} }, changeSet: { sourceId: "source:api" as never, sourceType: "OPENAPI", cursor: hash, changes: [], fetchedAt: now }, blocks: [] });
+    expect(database.prepare("SELECT COUNT(*) AS count FROM events WHERE operation = 'sync.apply'").all()).toEqual([{ count: 2 }]);
     persistEvidence(database, [{ id: "evidence:api" as never, kind: "API_CONTRACT", subject: "api.POST./transfer", predicate: "defines", value: {}, extractionConfidence: 1, authority: 1, provenance: { sourceEntityId: "entity:api" as never, rawBlockId: "block:api" as never, revision: hash, extractorId: "test", extractorVersion: "1" } }]);
     expect(database.prepare("SELECT subject FROM evidence").all()).toEqual([{ subject: "api.POST./transfer" }]);
     materializeSemanticGraph(database, { entities: [{ id: "entity:feature:transfer", type: "feature", attributes: {}, evidenceIds: ["evidence:api"] }, { id: "entity:api:POST:/transfer", type: "api_operation", attributes: {}, evidenceIds: ["evidence:api"] }], claims: [{ id: "claim:transfer-api", subjectId: "entity:feature:transfer", predicate: "exposes_api", object: { entityId: "entity:api:POST:/transfer" }, qualifiers: {}, confidence: 1, authority: 1, evidenceIds: ["evidence:api"] }], relations: [{ id: "relation:transfer-api", fromId: "entity:feature:transfer", type: "exposes_api", toId: "entity:api:POST:/transfer", evidenceIds: ["evidence:api"] }], discoveredConcepts: [{ kind: "ENTITY_TYPE", name: "eligibility_policy" }, { kind: "PREDICATE", name: "requires_identity_verification" }] }, "test");
@@ -40,6 +43,6 @@ describe("SQLite storage", () => {
     expect(database.prepare("SELECT type FROM semantic_relations WHERE id = 'relation:transfer-policy'").all()).toEqual([{ type: "requires" }]);
     expect(database.prepare("SELECT state FROM evidence WHERE id = 'evidence:api'").all()).toEqual([{ state: "INVALIDATED" }]);
     expect(database.prepare("SELECT COUNT(*) AS count FROM semantic_concepts WHERE state = 'DISCOVERED_CONCEPT'").all()).toEqual([{ count: 3 }]);
-    expect(database.prepare("SELECT operation FROM events ORDER BY operation").all()).toEqual([{ operation: "claim.propose" }, { operation: "claim.supersede" }, { operation: "entity.propose" }, { operation: "evidence.attach" }, { operation: "evidence.invalidate" }, { operation: "graph.materialize" }, { operation: "relation.propose" }, { operation: "sync.apply" }]); database.close();
+    expect(database.prepare("SELECT operation FROM events ORDER BY operation").all()).toEqual([{ operation: "claim.propose" }, { operation: "claim.supersede" }, { operation: "entity.propose" }, { operation: "evidence.attach" }, { operation: "evidence.invalidate" }, { operation: "graph.materialize" }, { operation: "relation.propose" }, { operation: "sync.apply" }, { operation: "sync.apply" }]); database.close();
   });
 });
