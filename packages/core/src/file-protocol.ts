@@ -15,7 +15,7 @@ export const fileEvidenceSchema = z.object({
   citation: citationSchema,
   kind: z.string().min(1),
   observation: z.record(z.unknown()),
-  extractor: z.object({ id: z.string().min(1), version: z.string().min(1), model: z.string().optional(), promptVersion: z.string().optional() }),
+  extractor: z.object({ id: z.string().min(1), version: z.string().min(1), model: z.string().optional(), promptVersion: z.string().optional(), cacheKey: z.string().optional() }),
   confidence: z.number().min(0).max(1),
   authority: z.number().min(0).max(1),
   state: z.enum(["ACTIVE", "STALE", "ORPHANED", "INVALIDATED"]),

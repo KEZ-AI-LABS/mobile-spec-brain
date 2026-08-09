@@ -1,19 +1,13 @@
-# ADR-006: Use an open semantic graph as the canonical model
-
-## Status
-
-Accepted.
-
-## Context
-
-A fixed mobile specification schema is useful for known checks, but it would make the model's vocabulary the limit of the product's vocabulary. Mobile projects have product-specific concepts, constraints, and relationships that cannot be safely enumerated in advance.
+# ADR-006: Keep semantic vocabulary open in a file-backed protocol
 
 ## Decision
 
-The canonical model is an Evidence-backed graph of `Entity`, `Claim`, and `Relation` records. Types and predicates are open strings. Newly observed names are registered as `DISCOVERED_CONCEPT` candidates. Mobile/API concepts are domain-pack projections, not core tables.
+`.spec-brain/` is the canonical project state. Evidence kinds, observations, claim predicates, objects, and discovered concepts remain open-world JSON values. Citation structure is deliberately closed and verified.
 
-All persisted graph records require Evidence joins, confidence/authority where applicable, state, and an append-only event. Agents may propose only narrow semantic mutations; policy and human review remain the write boundary.
+SQLite is a discardable `.index/` lookup cache, not a write target or authority. A deterministic spec view is derived from committed claims and evidence.
 
 ## Consequences
 
-The system can represent unknown product semantics without a schema migration. Typed mobile views remain easy to query and validate. Consumers must treat unknown concepts as candidates until a domain pack or governance policy recognizes them.
+New brownfield conventions do not require a schema migration or a concept-specific command. They can be proposed as cited observations and registered as `DISCOVERED_CONCEPT`. Consumers preserve unknown values rather than silently guessing them.
+
+This trades some fixed-domain convenience for reviewable Git state and broad project portability.

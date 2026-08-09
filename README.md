@@ -11,7 +11,7 @@ pnpm install
 pnpm spec-brain init
 pnpm spec-brain profile propose --file profile.json
 # A human reviews profile.json and changes status from PROPOSED to APPROVED.
-pnpm spec-brain extract --scope src
+pnpm spec-brain extract --scope src --file extraction-proposal.json
 pnpm spec-brain evidence record --file evidence.json
 pnpm spec-brain claim propose --file claim.json
 pnpm spec-brain verify
@@ -34,13 +34,13 @@ The external extraction boundary is deliberately narrow:
 }
 ```
 
-No fixed Android, iOS, Retrofit, navigation, or product-domain extractor is part of the CLI. The bundled OpenAPI and Figma adapters are deterministic source readers only; they do not become the canonical model or make implementation claims.
+No fixed Android, iOS, Retrofit, navigation, or product-domain extractor is part of the CLI. `extract --scope --file` accepts an AI-generated `{ extractor, observations }` proposal, validates every citation, and stores a committed extraction-cache record. The same scope contents plus extractor/model/prompt versions reuse the existing evidence rather than re-extracting. The bundled OpenAPI and Figma adapters are deterministic source readers only; they do not become the canonical model or make implementation claims.
 
 ## Commands
 
 `profile read|propose`, `evidence record|query`, `claim propose|supersede`, `graph query`, `extract --scope`, `verify`, `reindex`, `coverage`, and `spec render <feature> [--section predicate]`.
 
-`spec render` creates deterministic JSON and Markdown views containing claims, full evidence citations and states, unresolved items, and completeness. It never fills missing product facts.
+`spec render` creates deterministic JSON and Markdown views containing claims, full evidence citations and states, unresolved items, and completeness. Generic claims whose object has `{ method, path }`, `{ nodeId, name }`, `{ platform, status }`, or `{ direction, route }` project into API, Figma, implementation, and navigation sections without adding concept-specific recording commands. It never fills missing product facts.
 
 ## Verification
 

@@ -10,3 +10,4 @@ export * from "./safety.js";
 export * from "./acl.js";
 export * from "./source-spec.js";
 export * from "./file-protocol.js";
+export * from "./file-spec.js";

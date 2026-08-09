@@ -27,7 +27,7 @@ The core is deliberately open-world. Do not add a closed enum merely because a m
 - A mutation must pass the allowed-operation and actor policy checks and append an event.
 - Unknown concepts are candidates, not silently promoted domain truth.
 
-Read [ADR-006](docs/decisions/ADR-006-open-semantic-graph.md) before changing the semantic graph or storage migration.
+Read [ADR-006](docs/decisions/ADR-006-open-semantic-graph.md) before changing the open vocabulary or file protocol.
 
 ## Pull requests
 
