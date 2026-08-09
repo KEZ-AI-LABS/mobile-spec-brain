@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const allowedMutationSchema = z.enum(["spec.propose", "spec.supersede", "spec.deprecate", "spec.setValidity", "evidence.link", "evidence.invalidate", "decision.mark", "conflict.resolve"]);
+export const allowedMutationSchema = z.enum(["entity.propose", "claim.propose", "claim.supersede", "relation.propose", "evidence.attach", "evidence.invalidate", "decision.mark", "conflict.resolve"]);
 export const mutationProposalSchema = z.object({
   id: z.string().min(1),
   operation: allowedMutationSchema,

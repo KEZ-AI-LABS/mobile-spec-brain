@@ -1,4 +1,4 @@
-export type DirtyKind = "RAW" | "EVIDENCE" | "SPEC" | "RULE";
+export type DirtyKind = "RAW" | "EVIDENCE" | "CLAIM" | "RULE";
 export interface DependencyEdge { from: string; to: string; }
 export interface DirtyNode { id: string; kind: DirtyKind; }
 

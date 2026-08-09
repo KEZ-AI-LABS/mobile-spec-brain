@@ -2,9 +2,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
-import { applySourceSync, commitProposal, getEvidence, getFeature, getSpec, listFeatureSpecs, materializeSpecs, openWorkspaceDatabase, persistEvidence, persistFindings, readSyncState, SqliteEventStore } from "@mobile-spec-brain/storage";
+import { applySourceSync, commitProposal, getClaim, getEvidence, getFeature, listFeatureClaims, materializeSemanticGraph, openWorkspaceDatabase, persistEvidence, persistFindings, readSyncState, SqliteEventStore } from "@mobile-spec-brain/storage";
 import { checkApiParity, checkNavigationParity, extractImplementationEvidence, extractOpenApiEvidence, mobileSnapshots, openApiSnapshots, parseOpenApi, scanMobileRepository, scanNavigation } from "@mobile-spec-brain/api-parity";
-import { enforceSyncSafety, materializeApiSpecs, planBlockSync, sha256 } from "@mobile-spec-brain/core";
+import { enforceSyncSafety, materializeApiSemantics, planBlockSync, sha256 } from "@mobile-spec-brain/core";
 import { fetchFigmaFile, figmaSnapshots } from "@mobile-spec-brain/figma-adapter";
 import { z } from "zod";
 
@@ -38,7 +38,7 @@ function requireInitialized(json: boolean): boolean {
   return false;
 }
 
-const configSchema = z.object({ version: z.literal(1), profiles: z.array(z.string()).default(["mobile-generic"]), sources: z.array(z.object({ id: z.string().min(1), type: z.enum(["OPENAPI", "ANDROID", "IOS", "FIGMA"]), path: z.string().default(""), fileKey: z.string().optional() })).default([]), safety: z.object({ maxSpecInvalidation: z.number().int().positive().optional(), maxSourceChangeRatio: z.number().positive().max(1).optional() }).optional(), mutationPolicy: z.object({ allowedActors: z.array(z.string()).optional(), minimumEvidence: z.number().int().positive().optional() }).optional() });
+const configSchema = z.object({ version: z.literal(1), profiles: z.array(z.string()).default(["mobile-generic"]), sources: z.array(z.object({ id: z.string().min(1), type: z.enum(["OPENAPI", "ANDROID", "IOS", "FIGMA"]), path: z.string().default(""), fileKey: z.string().optional() })).default([]), safety: z.object({ maxClaimInvalidation: z.number().int().positive().optional(), maxSourceChangeRatio: z.number().positive().max(1).optional() }).optional(), mutationPolicy: z.object({ allowedActors: z.array(z.string()).optional(), minimumEvidence: z.number().int().positive().optional() }).optional() });
 type WorkspaceConfig = z.infer<typeof configSchema>; type ConfigSource = WorkspaceConfig["sources"][number];
 function config(): WorkspaceConfig { return configSchema.parse(JSON.parse(readFileSync(configPath, "utf8"))); }
 function sourceSet(): { openapi?: ConfigSource; android?: ConfigSource; ios?: ConfigSource; figma?: ConfigSource } {
@@ -56,12 +56,12 @@ async function sync(plan: boolean, json: boolean): Promise<void> {
     const database = openWorkspaceDatabase(databasePath); const sourcePath = resolve(projectRoot, api.path); const blocks = openApiSnapshots(api.id, sourcePath);
     const cursor = sha256(readFileSync(sourcePath, "utf8")); const state = readSyncState(database, api.id);
     const planned = planBlockSync(api.id as never, "OPENAPI", cursor, state, blocks);
-    const policyConfig = config() as WorkspaceConfig & { safety?: { maxSpecInvalidation?: number; maxSourceChangeRatio?: number } };
-    enforceSyncSafety({ changedEntities: planned.changeSet.changes.length, knownEntities: state.blocks.size, invalidatedSpecs: planned.dirtyBlockIds.length }, { maxSpecInvalidation: policyConfig.safety?.maxSpecInvalidation ?? 500, maxSourceChangeRatio: policyConfig.safety?.maxSourceChangeRatio ?? 0.3 });
+    const policyConfig = config() as WorkspaceConfig & { safety?: { maxClaimInvalidation?: number; maxSourceChangeRatio?: number } };
+    enforceSyncSafety({ changedEntities: planned.changeSet.changes.length, knownEntities: state.blocks.size, invalidatedClaims: planned.dirtyBlockIds.length }, { maxClaimInvalidation: policyConfig.safety?.maxClaimInvalidation ?? 500, maxSourceChangeRatio: policyConfig.safety?.maxSourceChangeRatio ?? 0.3 });
     const mobile = [sourceSet().android, sourceSet().ios].filter((source): source is ConfigSource => Boolean(source));
     const mobilePlans = mobile.map((source) => { const platform = source.type === "ANDROID" ? "android" : "ios" as const; const snapshot = mobileSnapshots(source.id, resolve(projectRoot, source.path), platform); const state = readSyncState(database, source.id); const cursor = sha256(JSON.stringify(snapshot.map((item) => item.contentHash))); return { source, platform, snapshot, planned: planBlockSync(source.id as never, "LOCAL_GIT", cursor, state, snapshot) }; });
     if (!plan) {
-      const evidence = extractOpenApiEvidence(api.id, blocks); applySourceSync(database, { source: { id: api.id, type: "OPENAPI", displayName: api.id, configuration: { path: api.path } }, changeSet: planned.changeSet, blocks, actor: "cli" }); persistEvidence(database, evidence); materializeSpecs(database, materializeApiSpecs(evidence), "cli");
+      const evidence = extractOpenApiEvidence(api.id, blocks); applySourceSync(database, { source: { id: api.id, type: "OPENAPI", displayName: api.id, configuration: { path: api.path } }, changeSet: planned.changeSet, blocks, actor: "cli" }); persistEvidence(database, evidence); materializeSemanticGraph(database, materializeApiSemantics(evidence), "cli");
       for (const item of mobilePlans) { const implementation = extractImplementationEvidence(item.snapshot); applySourceSync(database, { source: { id: item.source.id, type: "LOCAL_GIT", displayName: item.source.id, configuration: { path: item.source.path, platform: item.platform } }, changeSet: item.planned.changeSet, blocks: item.snapshot, actor: "cli" }); persistEvidence(database, implementation); }
       const figma = sourceSet().figma;
       if (figma?.fileKey && process.env.FIGMA_TOKEN) { const document = await fetchFigmaFile(figma.fileKey, process.env.FIGMA_TOKEN); const snapshots = figmaSnapshots(figma.id, document); const previous = readSyncState(database, figma.id); const figmaPlan = planBlockSync(figma.id as never, "FIGMA", document.version, previous, snapshots); applySourceSync(database, { source: { id: figma.id, type: "FIGMA", displayName: figma.id, configuration: { fileKey: figma.fileKey } }, changeSet: figmaPlan.changeSet, blocks: snapshots, actor: "cli" }); }
@@ -108,18 +108,18 @@ function propose(args: string[], json: boolean): void {
     output({ status: "accepted", proposal: accepted }, json);
   } catch (error) { output({ status: "rejected", code: "PROPOSAL_REJECTED", message: error instanceof Error ? error.message : String(error) }, json); process.exitCode = 2; }
 }
-async function readCommand(kind: "feature" | "spec" | "evidence" | "history", id: string | undefined, json: boolean): Promise<void> {
+async function readCommand(kind: "feature" | "claim" | "evidence" | "history", id: string | undefined, json: boolean): Promise<void> {
   if (!requireInitialized(json)) return;
   if (!id) { output({ status: "error", code: "IDENTIFIER_REQUIRED" }, json); process.exitCode = 2; return; }
   const database = openWorkspaceDatabase(databasePath);
-  const value = kind === "feature" ? getFeature(database, id) : kind === "spec" ? getSpec(database, id) : kind === "evidence" ? getEvidence(database, id) : await new SqliteEventStore(database).list(id);
+  const value = kind === "feature" ? getFeature(database, id) : kind === "claim" ? getClaim(database, id) : kind === "evidence" ? getEvidence(database, id) : await new SqliteEventStore(database).list(id);
   database.close(); output({ status: "complete", [kind]: value }, json);
 }
 function renderWiki(json: boolean): void {
   if (!requireInitialized(json)) return;
-  const database = openWorkspaceDatabase(databasePath); const rows = listFeatureSpecs(database); database.close();
+  const database = openWorkspaceDatabase(databasePath); const rows = listFeatureClaims(database); database.close();
   const byFeature = Map.groupBy(rows, (row) => row.feature); const wikiDir = join(workspaceDir, "wiki"); mkdirSync(wikiDir, { recursive: true });
-  for (const [feature, specs] of byFeature) { if (!feature) continue; const body = [`# ${specs?.[0]?.displayName ?? feature}`, "", "> Generated by Mobile Spec Brain. Do not edit directly.", "", "## Specifications", "", ...(specs ?? []).map((spec) => `- \`${spec.key}\` — ${spec.value} (confidence: ${spec.confidence})`), ""].join("\n"); writeFileSync(join(wikiDir, `${feature}.md`), body); }
+  for (const [feature, claims] of byFeature) { if (!feature) continue; const body = [`# ${claims?.[0]?.displayName ?? feature}`, "", "> Generated by Mobile Spec Brain. Do not edit directly.", "", "## Claims", "", ...(claims ?? []).map((claim) => `- \`${claim.predicate}\` — ${claim.object} (confidence: ${claim.confidence})`), ""].join("\n"); writeFileSync(join(wikiDir, `${feature}.md`), body); }
   output({ status: "rendered", directory: wikiDir, features: byFeature.size }, json);
 }
 
@@ -132,11 +132,11 @@ switch (command) {
   case "doctor": doctor(json); break;
   case "propose": propose(args, json); break;
   case "feature": await readCommand("feature", args.find((arg) => !arg.startsWith("--")), json); break;
-  case "spec": await readCommand("spec", args.find((arg) => !arg.startsWith("--")), json); break;
+  case "claim": await readCommand("claim", args.find((arg) => !arg.startsWith("--")), json); break;
   case "evidence": await readCommand("evidence", args.find((arg) => !arg.startsWith("--")), json); break;
   case "history": await readCommand("history", args.find((arg) => !arg.startsWith("--")), json); break;
   case "wiki": renderWiki(json); break;
   default:
-    console.log("Usage: mobile-spec-brain <init|sync|check|doctor|propose|feature|spec|evidence|history|wiki> [--plan] [--json]");
+    console.log("Usage: mobile-spec-brain <init|sync|check|doctor|propose|feature|claim|evidence|history|wiki> [--plan] [--json]");
     process.exitCode = command ? 2 : 0;
 }
