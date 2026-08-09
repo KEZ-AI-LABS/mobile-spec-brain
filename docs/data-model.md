@@ -1,11 +1,7 @@
 # Data model
 
-Stable identifiers are opaque strings. Display names and source paths are attributes, never identity.
+Citation is closed: `sourceId`, `path`, inclusive line `range`, SHA-256 `contentHash`, and `revision` are required. The verifier re-reads exactly that range under the registered source root.
 
-The initial migration creates workspaces, sources, source entities, raw revisions, raw blocks, evidence, sync cursors, extractor cache, policies, events, semantic concepts, semantic entities, claims, relations, findings, and their evidence joins.
+Everything semantic is open: evidence `kind`, observation fields, claim predicate/object, and discovered concepts are strings or JSON values rather than a mobile-domain enum. A claim references existing `ev_<citation-hash>` records and starts `ACTIVE`; it can become `NEEDS_REVIEW` when dependent evidence is `STALE`, `ORPHANED`, or human-invalidated.
 
-`semantic_entities.type`, `claims.predicate`, and `semantic_relations.type` are strings rather than closed enums. Unknown names are persisted in `semantic_concepts` with state `DISCOVERED_CONCEPT`. This lets extraction discover product-specific concepts while keeping references, evidence joins, confidence, authority, state, and events strictly validated.
-
-Raw revisions and events are append-only. Source deletion is represented with `DELETED_AT_SOURCE`; derived records are superseded, deprecated, or invalidated rather than hard-deleted.
-
-Every entity, claim, and relation is connected to one or more Evidence IDs. Evidence retains provenance fields (`sourceEntityId`, `rawBlockId`, revision, extractor version, and range), so a renderer can answer why an assertion exists.
+All JSON uses sorted keys and two-space indentation. A single record lives in a single evidence or claim file, so ordinary Git diffs remain reviewable.

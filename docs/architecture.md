@@ -1,37 +1,15 @@
 # Architecture
 
-## Invariant
+The committed `.spec-brain/` directory is Mobile Spec Brain's only source of truth. It has a small, reviewable file protocol:
 
-**Meaning is flexible. Integrity is strict.** Raw revisions are immutable historical inputs. Evidence-backed entities, claims, relations, findings, and the generated wiki are rebuildable materializations.
+- `profile.json` — a cited project profile, proposed by an agent and approved by a human.
+- `sources.json` — source roots that citations may address.
+- `evidence/<shard>/<id>.json` — one immutable observation per citation-derived ID, except for verification state.
+- `claims/<feature>/<id>.json` — open-world claims backed by existing evidence IDs.
+- `concepts.json` — discovered vocabulary candidates.
+- `events/<iso>-<uuid>.json` — append-only mutation and verification history.
+- `spec/` and `.index/` — generated views and a rebuildable SQLite lookup index.
 
-## Current boundary
+The CLI never scans Kotlin, Swift, Retrofit, navigation conventions, or product-specific names. `extract --scope` is an external-AI boundary: it returns the cache key and citation-only contract; `evidence record` independently validates the submitted source range and hash.
 
-The foundation separates the following layers so source-specific work cannot leak into resolution or policy:
-
-```text
-SourceAdapter -> ChangeSet -> Raw revisions / blocks -> Evidence -> Semantic graph -> Findings / Source spec / Wiki
-                                      |                    |              |
-                                      +-> append-only events+--------------+
-```
-
-The semantic graph has three open-world primitives:
-
-- `Entity(id, type, attributes)` identifies a thing without restricting its type to a predefined list.
-- `Claim(subject, predicate, object, qualifiers, evidence)` records an evidence-backed assertion.
-- `Relation(from, type, to, evidence)` records a typed graph edge.
-
-An extractor can introduce a previously unseen entity type, predicate, or relation type. Storage registers it as a `DISCOVERED_CONCEPT`; governed domain packs may later promote it. The mobile/API pack is only a convenient fast path that projects API evidence into `feature`, `api_operation`, and `exposes_api` graph records.
-
-- `@mobile-spec-brain/core` owns pure domain models, validation, hashing, adapter contracts, invalidation, and the event-store contract.
-- `@mobile-spec-brain/storage` owns SQLite schema migrations and persistence adapters.
-- `@mobile-spec-brain/cli` owns command parsing and workspace wiring; it contains no resolution logic.
-
-## Domain packs and views
-
-Domain packs may supply known concepts, extractors, rules, and wiki views, but they cannot weaken graph integrity. A “specification” is a selected valid set of Claims, not a separately stored fixed object. The built-in wiki is a deterministic read-only view; an AI composer may later propose alternate grouping or narrative, never write arbitrary files or database records directly.
-
-The CLI `spec` command is the development-start source-spec view. It selects graph relationships and their Evidence into paired JSON and Markdown files, includes the canonical graph-state hash, and preserves unresolved fields as `UNKNOWN`. These files are generated under `.mobile-spec-brain/spec/`; they are not mutable source data.
-
-## Safety boundaries
-
-LLM output is never a mutation. Semantic extraction returns a schema-validated proposal that is verified against immutable Evidence and policy before an append-only event is committed. The only permitted mutation vocabulary is intentionally low-level: entity/claim/relation proposals, claim supersession, evidence attachment or invalidation, decisions, and conflict resolution.
+Core keeps the existing generic resolution, mutation policy, ACL, safety, extraction-cache-key, invalidation, and open-world Entity/Claim/Relation primitives. They are policy utilities, not a second persistence model.

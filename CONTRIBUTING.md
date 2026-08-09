@@ -6,7 +6,7 @@ Thanks for contributing. This project treats source evidence as the durable trut
 
 1. Check existing issues and the architecture documents.
 2. Keep one behavior change per pull request where practical.
-3. Do not commit `.mobile-spec-brain/`, SQLite databases, source exports containing credentials, or access tokens.
+3. Commit the reviewable `.spec-brain/` source files, but never `.spec-brain/.index/`, generated `spec/` views, source exports containing credentials, or access tokens.
 
 ## Local checks
 

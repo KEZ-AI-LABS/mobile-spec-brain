@@ -21,10 +21,15 @@ describe("file-backed CLI workflow", () => {
     const evidence = JSON.parse(recorded.stdout).evidence;
     writeFileSync(join(root, "claim.json"), JSON.stringify({ id: "claim-transfer", feature: "transfer", predicate: "uses_wrapper", object: {}, evidenceIds: [evidence.id], state: "ACTIVE", recordedAt: new Date().toISOString() }));
     expect(command(root, "claim", "propose", "--file", "claim.json").status).toBe(0);
+    expect(command(root, "extract", "--scope", "src").status).toBe(0);
     expect(command(root, "reindex").status).toBe(0);
     expect(command(root, "spec", "render", "transfer").status).toBe(0);
+    const firstRender = readFileSync(join(root, ".spec-brain", "spec", "transfer.spec.json"), "utf8");
+    expect(command(root, "spec", "render", "transfer").status).toBe(0);
+    expect(readFileSync(join(root, ".spec-brain", "spec", "transfer.spec.json"), "utf8")).toBe(firstRender);
     writeFileSync(join(root, "src", "Transfer.kt"), "fun transfer() = \"changed\"\n");
     const verified = command(root, "verify"); expect(verified.status).toBe(0); expect(JSON.parse(verified.stdout)).toMatchObject({ stale: [evidence.id], claimsNeedingReview: ["claim-transfer"] });
     expect(readFileSync(join(root, ".spec-brain", "claims", "transfer", "claim-transfer.json"), "utf8")).toContain("NEEDS_REVIEW");
+    expect(command(root, "reindex").status).toBe(0);
   });
 });

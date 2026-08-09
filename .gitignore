@@ -1,10 +1,9 @@
 node_modules/
 dist/
 coverage/
-.mobile-spec-brain/
-.specweave/
 .spec-brain/.index/
 .spec-brain/spec/
+.specweave/
 *.sqlite
 .env
 .env.*

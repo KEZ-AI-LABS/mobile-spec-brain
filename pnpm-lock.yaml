@@ -27,12 +27,6 @@ importers:
         specifier: workspace:*
         version: link:../../packages/storage
 
-  packages/api-parity:
-    dependencies:
-      '@mobile-spec-brain/core':
-        specifier: workspace:*
-        version: link:../core
-
   packages/core:
     dependencies:
       zod:
@@ -45,6 +39,8 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/openapi-adapter: {}
+
   packages/storage:
     dependencies:
       '@mobile-spec-brain/core':
@@ -53,9 +49,6 @@ importers:
       better-sqlite3:
         specifier: ^12.2.0
         version: 12.11.1
-      zod:
-        specifier: ^3.24.4
-        version: 3.25.76
     devDependencies:
       '@types/better-sqlite3':
         specifier: ^7.6.13

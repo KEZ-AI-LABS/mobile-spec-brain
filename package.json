@@ -11,7 +11,6 @@
     "build": "pnpm --recursive run build",
     "check": "pnpm build && pnpm --recursive run check",
     "test": "pnpm build && pnpm --recursive run test",
-    "mobile-spec-brain": "pnpm --filter @mobile-spec-brain/cli start",
     "spec-brain": "pnpm --filter @mobile-spec-brain/cli start"
   },
   "devDependencies": {
