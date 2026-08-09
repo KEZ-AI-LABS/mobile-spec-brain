@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  buildCitation,
   claimRecords,
   coverage,
+  detectRevision,
   evidenceRecords,
   extractEvidence,
   initializeFileStore,
@@ -319,6 +321,110 @@ describe("profile gate", () => {
       stableJson({ status: "PROPOSED", entries: [], updatedAt: recordedAt() }),
     );
     expect(() => recordEvidence(root, observation(), "agent")).toThrow(/APPROVED/);
+  });
+});
+
+describe("buildCitation", () => {
+  it("produces a citation the store accepts without further work", () => {
+    writeFileSync(join(project, "Api.kt"), "package a\n\nfun call() = 1\n");
+    const citation = buildCitation(root, { path: "Api.kt", range: [3, 3] });
+
+    expect(citation).toMatchObject({ sourceId: "project", path: "Api.kt", range: [3, 3] });
+    expect(citation.contentHash).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(() => recordEvidence(root, observation({ citation }), "agent")).not.toThrow();
+  });
+
+  it("round-trips every boundary of a file", () => {
+    writeFileSync(join(project, "Api.kt"), "one\ntwo\nthree\n");
+    for (const range of [
+      [1, 1],
+      [3, 3],
+      [1, 3],
+      [2, 3],
+    ] as [number, number][]) {
+      const citation = buildCitation(root, { path: "Api.kt", range });
+      expect(() =>
+        recordEvidence(root, observation({ citation, observation: { range: range.join("-") } }), "agent"),
+      ).not.toThrow();
+    }
+  });
+
+  it("round-trips a file with no trailing newline", () => {
+    writeFileSync(join(project, "NoNewline.kt"), "only line");
+    const citation = buildCitation(root, { path: "NoNewline.kt", range: [1, 1] });
+    expect(() => recordEvidence(root, observation({ citation }), "agent")).not.toThrow();
+  });
+
+  it("refuses the phantom line a trailing newline creates", () => {
+    writeFileSync(join(project, "Api.kt"), "one\ntwo\nthree\n");
+    expect(() => buildCitation(root, { path: "Api.kt", range: [4, 4] })).toThrow(/outside Api.kt \(3 lines\)/);
+  });
+
+  it("refuses a path outside the source root", () => {
+    expect(() => buildCitation(root, { path: "../escape.kt", range: [1, 1] })).toThrow(/escapes source root/);
+  });
+
+  it("refuses an unordered or non-positive range", () => {
+    writeFileSync(join(project, "Api.kt"), "one\ntwo\n");
+    expect(() => buildCitation(root, { path: "Api.kt", range: [2, 1] })).toThrow(/must be ordered/);
+    expect(() => buildCitation(root, { path: "Api.kt", range: [0, 1] })).toThrow(/positive integer/);
+  });
+
+  it("falls back to a local revision outside a git repository", () => {
+    expect(detectRevision(root)).toBe("local");
+    expect(buildCitation(root, { path: "input.txt", range: [1, 1] }).revision).toBe("local");
+  });
+
+  it("honours an explicit revision", () => {
+    expect(buildCitation(root, { path: "input.txt", range: [1, 1], revision: "v1.2.3" }).revision).toBe("v1.2.3");
+  });
+});
+
+describe("verify as a CI gate", () => {
+  function claimOn(evidenceId: string, id = "claim"): void {
+    writeClaim(
+      root,
+      {
+        id,
+        feature: "feature",
+        predicate: "open",
+        object: {},
+        evidenceIds: [evidenceId],
+        state: "ACTIVE",
+        recordedAt: recordedAt(),
+      },
+      "agent",
+    );
+  }
+
+  it("reports no drift on a clean store", () => {
+    claimOn(recordEvidence(root, observation(), "agent").id);
+    expect(verifyFileStore(root, "test")).toMatchObject({ drift: false, claimsNeedingReview: [] });
+  });
+
+  it("keeps reporting drift on repeated runs, not only on the transition", () => {
+    claimOn(recordEvidence(root, observation(), "agent").id);
+    writeFileSync(join(project, "input.txt"), "second\n");
+
+    const first = verifyFileStore(root, "test");
+    expect(first).toMatchObject({ drift: true, claimsNeedingReview: ["claim"] });
+
+    // The claim is already NEEDS_REVIEW, so nothing transitions this time.
+    const second = verifyFileStore(root, "test");
+    expect(second).toMatchObject({ drift: true, claimsNeedingReview: ["claim"] });
+  });
+
+  it("reports drift for an orphaned citation", () => {
+    claimOn(recordEvidence(root, observation(), "agent").id);
+    rmSync(join(project, "input.txt"));
+    expect(verifyFileStore(root, "test")).toMatchObject({ drift: true, orphaned: [expect.any(String)] });
+  });
+
+  it("reports drift while a human invalidation is unresolved", () => {
+    const evidence = recordEvidence(root, observation(), "agent");
+    claimOn(evidence.id);
+    invalidateEvidence(root, evidence.id, "human");
+    expect(verifyFileStore(root, "test").drift).toBe(true);
   });
 });
 
