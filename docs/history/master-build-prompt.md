@@ -1,3 +1,18 @@
+# Archived: SpecWeave master build prompt
+
+> **Historical document. Superseded — do not build from this.**
+>
+> This is the original generation prompt written under the project's first name
+> (SpecWeave) and its first architecture: a SQLite-backed semantic graph with
+> built-in source adapters. That design was replaced by the committed
+> `.spec-brain/` file protocol described in [ADR-006](../decisions/ADR-006-open-semantic-graph.md)
+> and [ADR-007](../decisions/ADR-007-no-derived-index.md). It is kept only to
+> explain how the project got here.
+>
+> For the shipped design, read [architecture.md](../architecture.md).
+
+---
+
 SpecWeave — Master Build Prompt
 
 You are a principal-level software architect and senior engineer responsible for designing and implementing a production-grade developer infrastructure project from scratch.
@@ -14,24 +29,24 @@ Design it as a maintainable, extensible system that could eventually be adopted 
 
 Modern mobile product specifications are fragmented across many systems:
 
-* Slack / Mattermost
-* Confluence / Notion
-* Figma
-* Swagger / OpenAPI
-* Android repositories
-* iOS repositories
-* GitHub / GitLab
+- Slack / Mattermost
+- Confluence / Notion
+- Figma
+- Swagger / OpenAPI
+- Android repositories
+- iOS repositories
+- GitHub / GitLab
 
 These sources frequently become inconsistent.
 
 Examples:
 
-* Figma has a screen that Android implemented but iOS did not.
-* Slack contains a recently approved policy change while Confluence still contains the previous specification.
-* OpenAPI defines an error response that one mobile platform does not handle.
-* Android and iOS implement different business rules.
-* A specification was changed yesterday but only some implementations have propagated the change.
-* Documentation, design, API, and implementation disagree about the current intended behavior.
+- Figma has a screen that Android implemented but iOS did not.
+- Slack contains a recently approved policy change while Confluence still contains the previous specification.
+- OpenAPI defines an error response that one mobile platform does not handle.
+- Android and iOS implement different business rules.
+- A specification was changed yesterday but only some implementations have propagated the change.
+- Documentation, design, API, and implementation disagree about the current intended behavior.
 
 SpecWeave continuously synchronizes these sources, extracts structured evidence, derives a machine-readable product specification, and detects specification drift.
 
@@ -89,11 +104,11 @@ Actual mutations must pass through deterministic validation and policy enforceme
 
 The system should be safe even if:
 
-* the LLM hallucinates,
-* extraction results are incorrect,
-* a source adapter returns unexpected data,
-* a synchronization operation incorrectly reports thousands of changes,
-* an agent attempts an unsupported mutation.
+- the LLM hallucinates,
+- extraction results are incorrect,
+- a source adapter returns unexpected data,
+- a synchronization operation incorrectly reports thousands of changes,
+- an agent attempts an unsupported mutation.
 
 ⸻
 
@@ -103,10 +118,10 @@ Humans should not manually maintain the generated specification Wiki.
 
 People continue working in their normal tools:
 
-* designers work in Figma,
-* PMs write documents,
-* engineers write Android/iOS/backend code,
-* teams discuss decisions in messaging systems.
+- designers work in Figma,
+- PMs write documents,
+- engineers write Android/iOS/backend code,
+- teams discuss decisions in messaging systems.
 
 SpecWeave observes those existing workflows.
 
@@ -114,12 +129,12 @@ The generated Spec Wiki is a read-only materialized representation.
 
 Humans may:
 
-* inspect specs,
-* inspect evidence,
-* approve or reject uncertain decisions,
-* resolve conflicts,
-* mark evidence as an authoritative decision,
-* trigger synchronization.
+- inspect specs,
+- inspect evidence,
+- approve or reject uncertain decisions,
+- resolve conflicts,
+- mark evidence as an authoritative decision,
+- trigger synchronization.
 
 Humans must not directly edit generated Spec records.
 
@@ -136,30 +151,24 @@ Do NOT require users to configure every individual feature.
 Example:
 
 project:
-  name: banking-mobile
+name: banking-mobile
 sources:
-  android:
-    type: local
-    path: ../android
-  ios:
-    type: github
-    repo: company/ios
-  figma:
-    type: figma
-    files:
-      - ABC123
-  openapi:
-    type: openapi
-    url: https://api.company.internal/openapi.json
-  docs:
-    - type: confluence
-      space: MOBILE
-  messenger:
-    - type: slack
-      channels:
-        - mobile
-        - product
-        - design
+android:
+type: local
+path: ../android
+ios:
+type: github
+repo: company/ios
+figma:
+type: figma
+files: - ABC123
+openapi:
+type: openapi
+url: https://api.company.internal/openapi.json
+docs: - type: confluence
+space: MOBILE
+messenger: - type: slack
+channels: - mobile - product - design
 
 Features should normally be discovered automatically.
 
@@ -242,14 +251,14 @@ must not automatically become a new specification.
 
 Implement stable identifiers for:
 
-* sources,
-* source entities,
-* raw blocks,
-* evidence,
-* specs,
-* features,
-* decisions,
-* findings.
+- sources,
+- source entities,
+- raw blocks,
+- evidence,
+- specs,
+- features,
+- decisions,
+- findings.
 
 Entity resolution must distinguish:
 
@@ -273,24 +282,24 @@ Each adapter should use the best cursor mechanism available for its source.
 
 Examples:
 
-Git         → commit SHA
-Slack       → timestamp / cursor
-Confluence  → page version
-Notion      → last_edited_time
-Figma       → version / lastModified
-OpenAPI     → content hash
+Git → commit SHA
+Slack → timestamp / cursor
+Confluence → page version
+Notion → last_edited_time
+Figma → version / lastModified
+OpenAPI → content hash
 
 Normalize source changes into:
 
 interface ChangeSet {
-  source: SourceType
-  cursor: string
-  changes: Change[]
+source: SourceType
+cursor: string
+changes: Change[]
 }
 type Change =
-  | AddedChange
-  | ModifiedChange
-  | DeletedChange
+| AddedChange
+| ModifiedChange
+| DeletedChange
 
 Core sync logic should not care whether the source is Figma, Git, Slack, or Confluence.
 
@@ -304,20 +313,20 @@ Large source entities must be decomposed into stable logical blocks.
 
 Examples:
 
-* Confluence headings/blocks
-* Notion blocks
-* Figma nodes
-* OpenAPI operations and schemas
-* Kotlin/Swift symbols or semantic units
-* Slack messages / threads
+- Confluence headings/blocks
+- Notion blocks
+- Figma nodes
+- OpenAPI operations and schemas
+- Kotlin/Swift symbols or semantic units
+- Slack messages / threads
 
 Each block must have:
 
-* stable identity when possible,
-* content hash,
-* parent source identity,
-* source revision,
-* metadata.
+- stable identity when possible,
+- content hash,
+- parent source identity,
+- source revision,
+- metadata.
 
 Only changed blocks should be reprocessed.
 
@@ -347,11 +356,11 @@ model identifier
 Conceptually:
 
 cacheKey = hash(
-  contentHash +
-  extractorVersion +
-  schemaVersion +
-  promptVersion +
-  modelVersion
+contentHash +
+extractorVersion +
+schemaVersion +
+promptVersion +
+modelVersion
 )
 
 Identical input processed by an identical extractor should never require another LLM call.
@@ -367,14 +376,14 @@ Do not overwrite history.
 Model:
 
 interface RawRevision {
-  id: string
-  sourceEntityId: string
-  revision: string
-  contentHash: string
-  content: unknown
-  fetchedAt: Date
-  sourceUpdatedAt?: Date
-  metadata: Record<string, unknown>
+id: string
+sourceEntityId: string
+revision: string
+contentHash: string
+content: unknown
+fetchedAt: Date
+sourceUpdatedAt?: Date
+metadata: Record<string, unknown>
 }
 
 Source deletion does not delete historical data.
@@ -399,10 +408,10 @@ Example source statement:
 Possible evidence:
 
 {
-  "subject": "login.retryLimit",
-  "predicate": "equals",
-  "value": 5,
-  "confidence": 0.97
+"subject": "login.retryLimit",
+"predicate": "equals",
+"value": 5,
+"confidence": 0.97
 }
 
 Evidence must retain provenance.
@@ -410,10 +419,10 @@ Evidence must retain provenance.
 Example:
 
 {
-  "sourceEntity": "slack:message:12345",
-  "revision": "1739182",
-  "range": "...",
-  "extractorVersion": "business-rule:v3"
+"sourceEntity": "slack:message:12345",
+"revision": "1739182",
+"range": "...",
+"extractorVersion": "business-rule:v3"
 }
 
 ⸻
@@ -484,23 +493,12 @@ Authority policies must be configurable by company profile and specification dom
 Example:
 
 authority:
-  business_rule:
-    precedence:
-      - approved_decision
-      - product_document
-      - design
-      - messenger
-      - implementation
-  api_contract:
-    precedence:
-      - openapi
-      - backend_code
-      - mobile_code
-  ui:
-    precedence:
-      - figma
-      - product_document
-      - mobile_code
+business_rule:
+precedence: - approved_decision - product_document - design - messenger - implementation
+api_contract:
+precedence: - openapi - backend_code - mobile_code
+ui:
+precedence: - figma - product_document - mobile_code
 
 Do NOT hardcode one universal hierarchy.
 
@@ -513,21 +511,21 @@ Specs are materialized views derived from evidence.
 Example:
 
 login.retryLimit
-Slack        5
-Confluence  10
-Android      5
-iOS          5
+Slack 5
+Confluence 10
+Android 5
+iOS 5
 
 Spec Resolution should determine:
 
-* current likely specification,
-* supporting evidence,
-* conflicting evidence,
-* confidence,
-* authority,
-* freshness,
-* validity,
-* lifecycle.
+- current likely specification,
+- supporting evidence,
+- conflicting evidence,
+- confidence,
+- authority,
+- freshness,
+- validity,
+- lifecycle.
 
 It must be able to return UNKNOWN rather than making an unjustified decision.
 
@@ -550,14 +548,11 @@ release
 Example:
 
 validity:
-  environment:
-    - production
-  platforms:
-    - android
-    - ios
-  appVersion:
-    from: 8.23.0
-  effectiveAt: 2026-08-20
+environment: - production
+platforms: - android - ios
+appVersion:
+from: 8.23.0
+effectiveAt: 2026-08-20
 
 Two different specifications can both be correct if they apply to different versions or environments.
 
@@ -598,11 +593,12 @@ should produce something like:
 
 Current value: 5
 Evidence:
+
 - approved Slack decision on Aug 8
 - Figma updated on Aug 8
 - Android implementation = 5
 - older Confluence document still says 10
-Confidence: High
+  Confidence: High
 
 Never generate a specification that cannot be traced back to evidence.
 
@@ -631,14 +627,14 @@ Evidence
 Machine representation:
 
 {
-  "feature": "...",
-  "requirements": [],
-  "screens": [],
-  "states": [],
-  "navigation": [],
-  "apis": [],
-  "analytics": [],
-  "relationships": []
+"feature": "...",
+"requirements": [],
+"screens": [],
+"states": [],
+"navigation": [],
+"apis": [],
+"analytics": [],
+"relationships": []
 }
 
 The Human Wiki must not be an independently editable database.
@@ -733,33 +729,33 @@ Deterministic analysis should handle where possible:
 
 Android:
 
-* Kotlin symbols
-* Compose screens
-* XML resources
-* Navigation
-* Retrofit APIs
-* Manifest permissions
-* deep links
-* analytics
-* feature flags
+- Kotlin symbols
+- Compose screens
+- XML resources
+- Navigation
+- Retrofit APIs
+- Manifest permissions
+- deep links
+- analytics
+- feature flags
 
 iOS:
 
-* Swift symbols
-* SwiftUI views
-* UIKit screens
-* NavigationStack / Coordinator
-* networking layer
-* Info.plist
-* deep links
-* analytics
-* feature flags
+- Swift symbols
+- SwiftUI views
+- UIKit screens
+- NavigationStack / Coordinator
+- networking layer
+- Info.plist
+- deep links
+- analytics
+- feature flags
 
 API:
 
-* OpenAPI operations
-* request/response schemas
-* status/error codes
+- OpenAPI operations
+- request/response schemas
+- status/error codes
 
 Use AST/tree-sitter/compiler APIs where appropriate.
 
@@ -817,17 +813,18 @@ server-driven-ui
 Example project profile:
 
 extends:
-  - mobile-generic
-  - android-compose
-  - ios-swiftui
-featureDetection:
+
+- mobile-generic
+- android-compose
+- ios-swiftui
+  featureDetection:
   android:
+  patterns:
+  - feature/{feature}
+  - domain/{feature}
+    ios:
     patterns:
-      - feature/{feature}
-      - domain/{feature}
-  ios:
-    patterns:
-      - Features/{feature}
+  - Features/{feature}
 
 Core logic must remain company-independent.
 
@@ -931,8 +928,8 @@ PLAN
 Support safety thresholds such as:
 
 safety:
-  maxSpecInvalidation: 500
-  maxSourceChangeRatio: 0.30
+maxSpecInvalidation: 500
+maxSourceChangeRatio: 0.30
 
 Unexpectedly large invalidations should trigger a circuit breaker.
 
@@ -970,13 +967,13 @@ Secrets and sensitive values should be redacted before external LLM processing w
 
 Design the internal application API so it can later be exposed through:
 
-* CLI
-* MCP
-* GitHub Actions
-* GitLab CI
-* Web UI
-* IDE plugins
-* AI agents
+- CLI
+- MCP
+- GitHub Actions
+- GitLab CI
+- Web UI
+- IDE plugins
+- AI agents
 
 Recommended semantic operations:
 
@@ -1121,53 +1118,53 @@ Recommended shape:
 
 specweave/
 apps/
-  cli/
-  mcp/
+cli/
+mcp/
 packages/
-  core/
-    graph/
-    entities/
-    specs/
-    evidence/
-    decisions/
-    resolution/
-    findings/
-    events/
-  sync/
-    engine/
-    cursors/
-    diff/
-    invalidation/
-  adapters/
-    figma/
-    openapi/
-    slack/
-    mattermost/
-    confluence/
-    notion/
-    github/
-    gitlab/
-  analyzers/
-    android/
-    ios/
-  rules/
-    screen-parity/
-    api-parity/
-    navigation-parity/
-  profiles/
-    mobile-generic/
-    android-compose/
-    android-xml/
-    ios-swiftui/
-    ios-uikit/
-  policy/
-    acl/
-    authority/
-    mutation/
-    safety/
-  storage/
-  sdk/
-  testing/
+core/
+graph/
+entities/
+specs/
+evidence/
+decisions/
+resolution/
+findings/
+events/
+sync/
+engine/
+cursors/
+diff/
+invalidation/
+adapters/
+figma/
+openapi/
+slack/
+mattermost/
+confluence/
+notion/
+github/
+gitlab/
+analyzers/
+android/
+ios/
+rules/
+screen-parity/
+api-parity/
+navigation-parity/
+profiles/
+mobile-generic/
+android-compose/
+android-xml/
+ios-swiftui/
+ios-uikit/
+policy/
+acl/
+authority/
+mutation/
+safety/
+storage/
+sdk/
+testing/
 
 Adjust this structure if implementation evidence justifies a better decomposition, but preserve the architectural boundaries.
 
@@ -1260,13 +1257,13 @@ Unit tests
 
 For:
 
-* hash comparison,
-* cursor handling,
-* entity resolution,
-* dependency propagation,
-* authority rules,
-* lifecycle rules,
-* mutation validation.
+- hash comparison,
+- cursor handling,
+- entity resolution,
+- dependency propagation,
+- authority rules,
+- lifecycle rules,
+- mutation validation.
 
 Golden tests
 
@@ -1292,15 +1289,15 @@ Failure tests
 
 Explicitly test:
 
-* deleted evidence,
-* stale cursor,
-* conflicting authority,
-* malformed LLM output,
-* duplicate entities,
-* source rate limits,
-* partial sync failure,
-* excessive invalidation,
-* interrupted transaction.
+- deleted evidence,
+- stale cursor,
+- conflicting authority,
+- malformed LLM output,
+- duplicate entities,
+- source rate limits,
+- partial sync failure,
+- excessive invalidation,
+- interrupted transaction.
 
 ⸻
 
@@ -1335,26 +1332,26 @@ ADR-005 Incremental dependency invalidation
 
 Avoid:
 
-* god objects,
-* circular dependencies,
-* global mutable state,
-* hidden implicit conventions,
-* untyped LLM output,
-* direct DB mutations outside repositories/transactions,
-* source-specific logic inside Core,
-* business logic inside CLI commands,
-* silent error swallowing.
+- god objects,
+- circular dependencies,
+- global mutable state,
+- hidden implicit conventions,
+- untyped LLM output,
+- direct DB mutations outside repositories/transactions,
+- source-specific logic inside Core,
+- business logic inside CLI commands,
+- silent error swallowing.
 
 Prefer:
 
-* explicit domain models,
-* dependency inversion,
-* small interfaces,
-* deterministic transforms,
-* schema-validated boundaries,
-* pure functions where possible,
-* structured errors,
-* reproducible tests.
+- explicit domain models,
+- dependency inversion,
+- small interfaces,
+- deterministic transforms,
+- schema-validated boundaries,
+- pure functions where possible,
+- structured errors,
+- reproducible tests.
 
 ⸻
 
@@ -1518,18 +1515,18 @@ Make strong, well-reasoned engineering choices and document them.
 
 When encountering ambiguity:
 
-* prefer maintainability,
-* prefer deterministic behavior,
-* prefer evidence preservation,
-* prefer extensibility through interfaces rather than speculative complexity.
+- prefer maintainability,
+- prefer deterministic behavior,
+- prefer evidence preservation,
+- prefer extensibility through interfaces rather than speculative complexity.
 
 After each meaningful milestone:
 
-* run tests,
-* run type checking,
-* run linting,
-* update architecture documentation,
-* inspect for architectural drift.
+- run tests,
+- run type checking,
+- run linting,
+- update architecture documentation,
+- inspect for architectural drift.
 
 Do not leave placeholder implementations marked as complete.
 
