@@ -40,8 +40,18 @@ every submitted range.
 Scope hashing walks the scope with symbolic links skipped and `.git`, `node_modules`, `dist`, and `.spec-brain`
 excluded, reading file bytes so binary content contributes faithfully.
 
+## Citations in, verification out
+
+`cite` and verification share one function for turning a line range into text. A citation the CLI produces therefore
+cannot fail the check the CLI later applies to it, and the two cannot drift apart as the code changes. `cite`
+additionally refuses the phantom trailing line that splitting on `\n` creates for a file ending in a newline.
+
 ## Verification
 
 `verify` re-reads every citation. Content that no longer matches its hash becomes `STALE`; a citation whose file or
 source is gone becomes `ORPHANED`; a human may mark a record `INVALIDATED`. Active claims depending on any
 non-active evidence are downgraded to `NEEDS_REVIEW`. `INVALIDATED` is never cleared by verification.
+
+The result reports current state, not this run's transitions: `claimsNeedingReview` lists every claim presently in
+review and `drift` summarises whether anything needs human attention. `--fail-on-drift` turns that into a non-zero
+exit, so a repeated CI run cannot pass merely because the first run already recorded the downgrade.

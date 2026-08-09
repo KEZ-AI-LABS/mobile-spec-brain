@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   existsSync,
@@ -132,23 +133,114 @@ function requireApprovedProfile(root: string, action: string): void {
 
 type CitedContent = { content: string } | { reason: "ORPHANED" };
 
-function citedContent(sources: Map<string, Source>, root: string, candidate: Citation): CitedContent {
-  const citation = citationSchema.parse(candidate);
-  const source = sources.get(citation.sourceId);
+/**
+ * The single place a cited line range is turned into text. `cite` and
+ * verification both go through here, so a citation this store produces can
+ * never fail the hash check this store applies to it.
+ */
+function readCitedRange(
+  sources: Map<string, Source>,
+  root: string,
+  sourceId: string,
+  path: string,
+  range: readonly [number, number],
+): CitedContent {
+  const source = sources.get(sourceId);
   if (!source) return { reason: "ORPHANED" };
 
-  const resolved = resolveWithinSource(sourceDirectory(root, source), citation.path);
+  const resolved = resolveWithinSource(sourceDirectory(root, source), path);
   if (resolved.status === "ESCAPES") {
-    throw new Error(`Citation path '${citation.path}' escapes source root '${citation.sourceId}'.`);
+    throw new Error(`Citation path '${path}' escapes source root '${sourceId}'.`);
   }
   if (resolved.status === "MISSING") return { reason: "ORPHANED" };
 
   const lines = readFileSync(resolved.path, "utf8").split("\n");
-  const [start, end] = citation.range;
+  const [start, end] = range;
   if (end > lines.length) {
-    throw new Error(`Citation range ${start}-${end} is outside ${citation.path} (${lines.length} lines).`);
+    throw new Error(`Citation range ${start}-${end} is outside ${path} (${lines.length} lines).`);
   }
   return { content: lines.slice(start - 1, end).join("\n") };
+}
+
+function citedContent(sources: Map<string, Source>, root: string, candidate: Citation): CitedContent {
+  const citation = citationSchema.parse(candidate);
+  return readCitedRange(sources, root, citation.sourceId, citation.path, citation.range);
+}
+
+export interface CitationRequest {
+  path: string;
+  range: [number, number];
+  sourceId?: string;
+  revision?: string;
+}
+
+/**
+ * Counts real lines. Splitting on "\n" leaves a trailing empty element for the
+ * usual file that ends with a newline; that element is not a line anyone can
+ * point at in an editor, so `cite` must not hand out a citation for it.
+ */
+function countLines(sources: Map<string, Source>, root: string, sourceId: string, path: string): number | undefined {
+  const source = sources.get(sourceId);
+  if (!source) return undefined;
+  const resolved = resolveWithinSource(sourceDirectory(root, source), path);
+  if (resolved.status === "ESCAPES") throw new Error(`Citation path '${path}' escapes source root '${sourceId}'.`);
+  if (resolved.status === "MISSING") return undefined;
+
+  const lines = readFileSync(resolved.path, "utf8").split("\n");
+  return lines.at(-1) === "" ? lines.length - 1 : lines.length;
+}
+
+/**
+ * Reads the git revision of a source root. The revision is provenance
+ * metadata; the content hash is what verification actually checks, so a
+ * repository without git falls back to "local" rather than failing.
+ */
+export function detectRevision(root: string, sourceId = "project"): string {
+  const source = loadSources(root).get(sourceId);
+  if (!source) return "local";
+  try {
+    return execFileSync("git", ["rev-parse", "--short", "HEAD"], {
+      cwd: sourceDirectory(root, source),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return "local";
+  }
+}
+
+/** Produces a verified citation for a line range. */
+export function buildCitation(root: string, request: CitationRequest): Citation {
+  const sourceId = request.sourceId ?? "project";
+  const [start, end] = request.range;
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < 1) {
+    throw new Error(`Citation range ${start}-${end} must be positive integer line numbers.`);
+  }
+  if (start > end) throw new Error(`Citation range ${start}-${end} must be ordered.`);
+
+  const sources = loadSources(root);
+  if (!sources.has(sourceId)) throw new Error(`Unknown source '${sourceId}'.`);
+
+  const lineCount = countLines(sources, root, sourceId, request.path);
+  if (lineCount === undefined) {
+    throw new Error(`Cannot cite ${request.path}: the file does not exist under source '${sourceId}'.`);
+  }
+  if (end > lineCount) {
+    throw new Error(`Citation range ${start}-${end} is outside ${request.path} (${lineCount} lines).`);
+  }
+
+  const cited = readCitedRange(sources, root, sourceId, request.path, [start, end]);
+  if (!("content" in cited)) {
+    throw new Error(`Cannot cite ${request.path}: the file does not exist under source '${sourceId}'.`);
+  }
+
+  return citationSchema.parse({
+    sourceId,
+    path: request.path,
+    range: [start, end],
+    contentHash: `sha256:${sha256(cited.content)}`,
+    revision: request.revision ?? detectRevision(root, sourceId),
+  });
 }
 
 function validateCitationWith(sources: Map<string, Source>, root: string, citation: Citation): void {
@@ -404,21 +496,26 @@ export function writeClaim(
   return parsed;
 }
 
-/** Downgrades active claims that depend on evidence which is no longer active. */
+/**
+ * Downgrades active claims that depend on evidence which is no longer active,
+ * and returns every claim currently in NEEDS_REVIEW — not only the ones this
+ * call transitioned. Reporting the transition alone would make a second CI run
+ * look clean simply because the first run had already recorded the downgrade.
+ */
 function reviewDependentClaims(root: string): string[] {
   const inactive = new Set(
     evidenceRecords(root)
       .filter((item) => item.state !== "ACTIVE")
       .map((item) => item.id),
   );
-  const reviewed: string[] = [];
   for (const claim of claimRecords(root)) {
     if (claim.state !== "ACTIVE") continue;
     if (!claim.evidenceIds.some((id) => inactive.has(id))) continue;
     writeAtomic(claimPath(root, claim), { ...claim, state: "NEEDS_REVIEW" });
-    reviewed.push(claim.id);
   }
-  return reviewed;
+  return claimRecords(root)
+    .filter((claim) => claim.state === "NEEDS_REVIEW")
+    .map((claim) => claim.id);
 }
 
 export interface InvalidationResult {
@@ -443,6 +540,8 @@ export interface VerificationResult {
   stale: string[];
   orphaned: string[];
   claimsNeedingReview: string[];
+  /** True when the store needs human attention: use this to gate CI. */
+  drift: boolean;
 }
 
 export function verifyFileStore(root: string, actor: string): VerificationResult {
@@ -466,8 +565,9 @@ export function verifyFileStore(root: string, actor: string): VerificationResult
   }
 
   const claimsNeedingReview = reviewDependentClaims(root);
-  appendFileEvent(root, actor, "verify", { claimsNeedingReview, orphaned, stale });
-  return { stale, orphaned, claimsNeedingReview };
+  const drift = stale.length > 0 || orphaned.length > 0 || claimsNeedingReview.length > 0;
+  appendFileEvent(root, actor, "verify", { claimsNeedingReview, drift, orphaned, stale });
+  return { stale, orphaned, claimsNeedingReview, drift };
 }
 
 export function graphQuery(

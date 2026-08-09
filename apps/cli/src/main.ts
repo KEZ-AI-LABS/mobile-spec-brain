@@ -10,6 +10,7 @@ import {
   type FileSpec,
 } from "@mobile-spec-brain/core";
 import {
+  buildCitation,
   claimRecords,
   coverage,
   evidenceRecords,
@@ -26,11 +27,14 @@ import {
   stableJson,
   verifyFileStore,
   writeClaim,
+  type CitationRequest,
 } from "@mobile-spec-brain/storage";
 
 const USAGE = `Usage: spec-brain <command>
 
   init                                          Create .spec-brain/ in the current directory
+  cite <path> <start> <end> [--source id] [--revision r]
+                                                Build a verified citation for a line range
   profile read
   profile propose --file <profile.json>
   evidence record --file <evidence.json>
@@ -40,7 +44,7 @@ const USAGE = `Usage: spec-brain <command>
   claim supersede --file <claim.json>
   graph query [--feature f] [--predicate p] [--state s]
   extract --scope <path> [--file <proposal.json>]
-  verify
+  verify [--fail-on-drift]
   coverage
   spec render <feature> [--section ${specSections.join("|")}]`;
 
@@ -53,7 +57,7 @@ interface ParsedArguments {
 }
 
 /** Flags that stand alone rather than taking the next token as a value. */
-const BOOLEAN_FLAGS = new Set(["--json", "--confirm-human"]);
+const BOOLEAN_FLAGS = new Set(["--json", "--confirm-human", "--fail-on-drift"]);
 
 function parseArguments(argv: string[]): ParsedArguments {
   const positional: string[] = [];
@@ -116,6 +120,28 @@ function init(): void {
   const sources = JSON.parse(readFileSync(sourcesPath, "utf8")) as unknown[];
   if (sources.length === 0) writeFileSync(sourcesPath, stableJson([projectSource(root, projectRoot)]));
   output({ status: "initialized", root });
+}
+
+function cite(): void {
+  requireStore();
+  // `cite` reads a range that already exists on disk, so its arguments are
+  // positional from the command word onward rather than sub-commanded.
+  const positional = [args.subcommand, ...args.positional].filter((value): value is string => value !== undefined);
+  const [path, start, end] = positional;
+  if (!path || !start || !end) fail("Use `spec-brain cite <path> <start-line> <end-line>`.");
+
+  const range: [number, number] = [Number(start), Number(end)];
+  if (!Number.isFinite(range[0]) || !Number.isFinite(range[1])) {
+    fail(`Line numbers must be integers, got '${start}' and '${end}'.`);
+  }
+
+  const request: CitationRequest = { path, range };
+  const source = option("--source");
+  if (source !== undefined) request.sourceId = source;
+  const revision = option("--revision");
+  if (revision !== undefined) request.revision = revision;
+
+  output({ status: "complete", citation: buildCitation(root, request) });
 }
 
 function profile(): void {
@@ -318,6 +344,7 @@ function renderSpec(): void {
 
 const commands: Record<string, () => void> = {
   init,
+  cite,
   profile,
   evidence,
   claim,
@@ -326,7 +353,9 @@ const commands: Record<string, () => void> = {
   spec: renderSpec,
   verify: () => {
     requireStore();
-    output({ status: "complete", ...verifyFileStore(root, "verifier") });
+    const result = verifyFileStore(root, "verifier");
+    output({ status: "complete", ...result });
+    if (result.drift && args.flags.has("--fail-on-drift")) process.exitCode = 1;
   },
   coverage: () => {
     requireStore();

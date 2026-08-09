@@ -236,3 +236,66 @@ describe("file-backed CLI workflow", () => {
     expect(existsSync(join(root, ".spec-brain", ".index"))).toBe(false);
   });
 });
+
+describe("cite", () => {
+  it("emits a citation that evidence record accepts unchanged", () => {
+    approveProfile();
+    const cited = run("cite", "src/Transfer.kt", "2", "2");
+    expect(cited.status).toBe(0);
+
+    const { citation } = cited.json as unknown as { citation: Record<string, unknown> };
+    expect(citation).toMatchObject({ sourceId: "project", path: "src/Transfer.kt", range: [2, 2] });
+
+    write("evidence.json", {
+      citation,
+      kind: "network-wrapper",
+      observation: { note: "cited by the CLI" },
+      extractor: { id: "agent", version: "1" },
+      confidence: 0.8,
+      authority: 0.6,
+    });
+    expect(run("evidence", "record", "--file", "evidence.json").status).toBe(0);
+  });
+
+  it("reports a usable error for a bad range or a bad path", () => {
+    expect(run("cite", "src/Transfer.kt", "1", "99").json).toMatchObject({
+      message: expect.stringContaining("outside"),
+    });
+    expect(run("cite", "../escape.kt", "1", "1").json).toMatchObject({
+      message: expect.stringContaining("escapes source root"),
+    });
+    expect(run("cite", "src/Transfer.kt", "x", "1").json).toMatchObject({
+      message: expect.stringContaining("must be integers"),
+    });
+    expect(run("cite").json).toMatchObject({ message: expect.stringContaining("spec-brain cite") });
+  });
+});
+
+describe("verify --fail-on-drift", () => {
+  function setUpDrift(): void {
+    approveProfile();
+    proposeTransferClaims(recordTransferEvidence());
+    writeFileSync(join(root, "src", "Transfer.kt"), 'class InternalHttpClient\nfun transfer() = "changed"\n');
+  }
+
+  it("exits zero on a clean store", () => {
+    approveProfile();
+    proposeTransferClaims(recordTransferEvidence());
+    const result = run("verify", "--fail-on-drift");
+    expect(result.status).toBe(0);
+    expect(result.json).toMatchObject({ drift: false });
+  });
+
+  it("exits non-zero while drift is unresolved, on every run", () => {
+    setUpDrift();
+    expect(run("verify", "--fail-on-drift").status).toBe(1);
+    expect(run("verify", "--fail-on-drift").status).toBe(1);
+  });
+
+  it("still exits zero without the flag, so verify stays reportable", () => {
+    setUpDrift();
+    const result = run("verify");
+    expect(result.status).toBe(0);
+    expect(result.json).toMatchObject({ drift: true });
+  });
+});
