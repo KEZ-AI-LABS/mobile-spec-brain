@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { sha256 } from "./hash.js";
 import { stableStringify } from "./stable-json.js";
-import type { FileClaim, FileEvidence } from "./file-protocol.js";
+import { coverageSections, type FeatureCoverageRecord, type FileClaim, type FileEvidence } from "./file-protocol.js";
 
 const evidenceIds = z.array(z.string()).default([]);
 
@@ -31,15 +31,25 @@ const routeSchema = z.object({
 });
 
 export const fileSpecSchema = z.object({
-  version: z.literal(1),
+  version: z.literal(2),
   graphHash: z.string().length(64),
   feature: z.object({ key: z.string(), displayName: z.string(), evidenceIds }),
   completeness: z.object({
-    knownFields: z.number(),
-    unknownFields: z.number(),
-    staleFields: z.number(),
+    totalSections: z.number(),
+    completeSections: z.number(),
+    incompleteSections: z.number(),
+    staleSections: z.number(),
     ratio: z.number(),
   }),
+  coverage: z.array(
+    z.object({
+      section: z.string(),
+      status: z.string(),
+      reason: z.string().optional(),
+      evidenceIds,
+      state: z.enum(["COMPLETE", "INCOMPLETE", "NEEDS_REVIEW"]),
+    }),
+  ),
   figmaFrames: z.array(figmaFrameSchema),
   api: z.array(apiSchema),
   implementations: z.array(implementationSchema),
@@ -68,7 +78,12 @@ function text(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-export function buildFileSpec(feature: string, claims: FileClaim[], evidence: FileEvidence[]): FileSpec {
+export function buildFileSpec(
+  feature: string,
+  claims: FileClaim[],
+  evidence: FileEvidence[],
+  coverageRecord?: FeatureCoverageRecord,
+): FileSpec {
   const evidenceState = new Map(evidence.map((item) => [item.id, item.state]));
   const dependsOnInactiveEvidence = (claim: FileClaim): boolean =>
     claim.evidenceIds.some((id) => evidenceState.get(id) !== "ACTIVE");
@@ -120,32 +135,54 @@ export function buildFileSpec(feature: string, claims: FileClaim[], evidence: Fi
 
   const displayName = projected.map(({ object }) => text(object.displayName)).find((value) => value !== undefined);
 
-  const unknowns =
-    claims.length === 0
-      ? [{ field: "claims", reason: "EVIDENCE_ABSENT", evidenceIds: [] }]
-      : claims
-          .filter((claim) => stateOf(claim) !== "ACTIVE")
-          .map((claim) => ({ field: claim.id, reason: claim.state, evidenceIds: claim.evidenceIds }));
+  const declaredCoverage = new Map(coverageRecord?.sections.map((item) => [item.section, item]));
+  const coverage = coverageSections.map((section) => {
+    const declared = declaredCoverage.get(section) ?? {
+      section,
+      status: "UNKNOWN" as const,
+      reason: "ANALYSIS_NOT_RECORDED",
+      evidenceIds: [],
+    };
+    const stale = declared.evidenceIds.some((id) => evidenceState.get(id) !== "ACTIVE");
+    const complete = declared.status === "ANALYZED" || declared.status === "NOT_APPLICABLE";
+    return {
+      ...declared,
+      state: stale ? ("NEEDS_REVIEW" as const) : complete ? ("COMPLETE" as const) : ("INCOMPLETE" as const),
+    };
+  });
 
-  // Completeness is measured over claims, so a single unresolved claim is
-  // counted once rather than as both a claim and an unknown.
-  const active = claims.filter((claim) => stateOf(claim) === "ACTIVE").length;
-  const total = Math.max(claims.length, 1);
+  const unknowns = [
+    ...coverage
+      .filter((item) => item.state !== "COMPLETE")
+      .map((item) => ({
+        field: `coverage.${item.section}`,
+        reason: item.state === "NEEDS_REVIEW" ? "COVERAGE_EVIDENCE_STALE" : item.status,
+        evidenceIds: item.evidenceIds,
+      })),
+    ...claims
+      .filter((claim) => stateOf(claim) !== "ACTIVE")
+      .map((claim) => ({ field: claim.id, reason: stateOf(claim), evidenceIds: claim.evidenceIds })),
+  ];
+
+  const completeSections = coverage.filter((item) => item.state === "COMPLETE").length;
+  const staleSections = coverage.filter((item) => item.state === "NEEDS_REVIEW").length;
 
   return fileSpecSchema.parse({
-    version: 1,
-    graphHash: sha256(stableStringify({ claims, evidence })),
+    version: 2,
+    graphHash: sha256(stableStringify({ claims, evidence, coverage })),
     feature: {
       key: feature,
-      displayName: displayName ?? feature,
+      displayName: coverageRecord?.displayName ?? displayName ?? feature,
       evidenceIds: [...new Set(claims.flatMap((claim) => claim.evidenceIds))].sort(),
     },
     completeness: {
-      knownFields: active,
-      unknownFields: total - active,
-      staleFields: claims.filter(dependsOnInactiveEvidence).length,
-      ratio: active / total,
+      totalSections: coverage.length,
+      completeSections,
+      incompleteSections: coverage.length - completeSections,
+      staleSections,
+      ratio: completeSections / coverage.length,
     },
+    coverage,
     figmaFrames,
     api,
     implementations,

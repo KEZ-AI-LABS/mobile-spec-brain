@@ -1,40 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractionCacheKey, sha256, stableJson, stableStringify } from "./index.js";
-
-describe("extractionCacheKey", () => {
-  const base = {
-    contentHash: "a",
-    extractorId: "api",
-    extractorVersion: "1",
-    schemaVersion: "1",
-    promptVersion: "1",
-    modelVersion: "m",
-  };
-
-  it("is deterministic and sensitive to every input", () => {
-    expect(extractionCacheKey(base)).toBe(extractionCacheKey(base));
-    expect(extractionCacheKey(base)).not.toBe(extractionCacheKey({ ...base, extractorVersion: "2" }));
-    expect(extractionCacheKey(base)).not.toBe(extractionCacheKey({ ...base, schemaVersion: "2" }));
-  });
-
-  it("does not depend on the property order of the literal at the call site", () => {
-    const reordered = {
-      modelVersion: base.modelVersion,
-      promptVersion: base.promptVersion,
-      schemaVersion: base.schemaVersion,
-      extractorVersion: base.extractorVersion,
-      extractorId: base.extractorId,
-      contentHash: base.contentHash,
-    };
-    expect(extractionCacheKey(reordered)).toBe(extractionCacheKey(base));
-  });
-
-  it("separates fields so concatenation cannot collide", () => {
-    expect(extractionCacheKey({ ...base, extractorId: "ap", extractorVersion: "i1" })).not.toBe(
-      extractionCacheKey(base),
-    );
-  });
-});
+import { sha256, stableJson, stableStringify } from "./index.js";
 
 describe("stable serialization", () => {
   it("ignores key order at every depth", () => {

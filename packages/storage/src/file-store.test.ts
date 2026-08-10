@@ -1,24 +1,26 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  applyVerification,
   buildCitation,
   claimRecords,
   coverage,
   detectRevision,
   evidenceRecords,
-  extractEvidence,
+  ingestAnalysisBundle,
   initializeFileStore,
   invalidateEvidence,
-  MAX_OBSERVATIONS_PER_EXTRACTION,
   projectSource,
+  readFeatureCoverage,
   recordEvidence,
-  scopeContentHash,
   specBrainDirectory,
   stableJson,
+  validateAnalysisBundle,
   verifyFileStore,
+  verifiedSnapshot,
   writeClaim,
   type EvidenceRecordInput,
 } from "./file-store.js";
@@ -48,6 +50,47 @@ function observation(overrides: Partial<EvidenceRecordInput> = {}): EvidenceReco
     confidence: 1,
     authority: 1,
     ...overrides,
+  };
+}
+
+function analysisBundle(summary = "first reading", claimId = "analysis-claim") {
+  return {
+    schemaVersion: 1,
+    repository: { revision: "local" },
+    extractor: { id: "test-agent", version: "1", model: "test" },
+    filesRead: [{ sourceId: "project", path: "input.txt" }],
+    excluded: ["build"],
+    features: [
+      {
+        key: "feature",
+        displayName: "Feature",
+        coverage: [
+          { section: "product", status: "UNKNOWN", reason: "No product source", evidenceKeys: [] },
+          { section: "design", status: "SOURCE_UNAVAILABLE", reason: "No design source", evidenceKeys: [] },
+          { section: "api", status: "UNKNOWN", reason: "API applicability not established", evidenceKeys: [] },
+          { section: "implementation", status: "ANALYZED", evidenceKeys: ["implementation"] },
+          { section: "navigation", status: "UNKNOWN", reason: "Navigation not established", evidenceKeys: [] },
+        ],
+        evidence: [
+          {
+            key: "implementation",
+            citation: observation().citation,
+            kind: "implementation",
+            observation: { summary },
+            confidence: 1,
+            authority: 1,
+          },
+        ],
+        claims: [
+          {
+            id: claimId,
+            predicate: "implementation",
+            object: { platform: "test", status: "IMPLEMENTED" },
+            evidenceKeys: ["implementation"],
+          },
+        ],
+      },
+    ],
   };
 }
 
@@ -161,55 +204,71 @@ describe("source-root containment", () => {
       expect((error as Error).message).not.toContain("super-secret");
     }
   });
-
-  it("excludes symlinked and ignored entries when hashing an extraction scope", () => {
-    const outside = mkdtempSync(join(tmpdir(), "brain-outside-"));
-    writeFileSync(join(outside, "payload.txt"), "outside\n");
-    mkdirSync(join(project, "scope"));
-    writeFileSync(join(project, "scope", "a.txt"), "a\n");
-    const before = scopeContentHash(root, "scope");
-
-    symlinkSync(outside, join(project, "scope", "linked"));
-    mkdirSync(join(project, "scope", "node_modules"));
-    writeFileSync(join(project, "scope", "node_modules", "junk.txt"), "junk\n");
-
-    expect(scopeContentHash(root, "scope")).toBe(before);
-  });
 });
 
-describe("extraction limits", () => {
-  it("accepts a large first extraction against an empty store", () => {
-    const lines = Array.from({ length: 200 }, (_, index) => `line ${index}`);
-    writeFileSync(join(project, "big.txt"), `${lines.join("\n")}\n`);
-    const observations = lines.map((line, index) =>
-      observation({
-        citation: {
-          sourceId: "project",
-          path: "big.txt",
-          range: [index + 1, index + 1],
-          contentHash: hash(line),
-          revision: "local",
-        },
-        observation: { line },
-      }),
+describe("project-wide analysis bundles", () => {
+  it("validates and ingests one reviewed bundle without a caller-provided scope", () => {
+    const bundle = analysisBundle();
+    expect(validateAnalysisBundle(root, bundle)).toMatchObject({ filesRead: 1, features: [{ key: "feature" }] });
+    expect(() => ingestAnalysisBundle(root, bundle, "agent")).toThrow(/human actor/);
+
+    const ingested = ingestAnalysisBundle(root, bundle, "human");
+    expect(ingested.status).toBe("INGESTED");
+    expect(ingested.evidenceIds).toHaveLength(1);
+    expect(ingested.claimIds).toEqual(["analysis-claim"]);
+    expect(readFeatureCoverage(root, "feature")?.sections).toHaveLength(5);
+
+    const repeated = ingestAnalysisBundle(root, bundle, "human");
+    expect(repeated.status).toBe("UNCHANGED");
+    expect(evidenceRecords(root)).toHaveLength(1);
+  });
+
+  it("validates every new proposal instead of returning a scope cache hit", () => {
+    ingestAnalysisBundle(root, analysisBundle("first reading", "claim-first"), "human");
+    ingestAnalysisBundle(root, analysisBundle("second reading", "claim-second"), "human");
+
+    expect(evidenceRecords(root).map((item) => item.observation)).toEqual(
+      expect.arrayContaining([{ summary: "second reading" }, { summary: "first reading" }]),
     );
-
-    const result = extractEvidence(root, ".", { extractor: { id: "ai", version: "1" }, observations }, "agent");
-    expect(result.reused).toBe(false);
-    expect(result.evidence).toHaveLength(200);
   });
 
-  it("rejects a proposal above the absolute cap", () => {
-    const observations = Array.from({ length: MAX_OBSERVATIONS_PER_EXTRACTION + 1 }, () => observation());
-    expect(() =>
-      extractEvidence(root, ".", { extractor: { id: "ai", version: "1" }, observations }, "agent"),
-    ).toThrow(/above the limit/);
+  it("requires every fixed protocol coverage section", () => {
+    const bundle = analysisBundle();
+    bundle.features[0]!.coverage.pop();
+    expect(() => validateAnalysisBundle(root, bundle)).toThrow(/Coverage section 'navigation' is required/);
   });
 
-  it("reuses an identical extraction rather than re-recording it", () => {
-    const proposal = { extractor: { id: "ai", version: "1" }, observations: [observation()] };
-    expect(extractEvidence(root, ".", proposal, "agent").reused).toBe(false);
-    expect(extractEvidence(root, ".", proposal, "agent").reused).toBe(true);
+  it("requires evidence for complete coverage statuses", () => {
+    const bundle = analysisBundle();
+    bundle.features[0]!.coverage[0] = {
+      section: "product",
+      status: "ANALYZED",
+      reason: "claimed complete without evidence",
+      evidenceKeys: [],
+    };
+    expect(() => validateAnalysisBundle(root, bundle)).toThrow(/requires supporting evidence/);
+  });
+
+  it("rejects path-like feature and claim identifiers from an untrusted bundle", () => {
+    const unsafeFeature = analysisBundle();
+    unsafeFeature.features[0]!.key = "../../outside";
+    expect(() => validateAnalysisBundle(root, unsafeFeature)).toThrow(/safe record key/);
+
+    const unsafeClaim = analysisBundle();
+    unsafeClaim.features[0]!.claims[0]!.id = "../outside";
+    expect(() => validateAnalysisBundle(root, unsafeClaim)).toThrow(/safe record key/);
+  });
+
+  it("requires cited files to appear in the analysis audit manifest", () => {
+    const bundle = analysisBundle();
+    bundle.filesRead = [];
+    expect(() => validateAnalysisBundle(root, bundle)).toThrow(/not declared in filesRead/);
+  });
+
+  it("rejects duplicate discovered feature keys", () => {
+    const bundle = analysisBundle();
+    bundle.features.push(bundle.features[0]!);
+    expect(() => validateAnalysisBundle(root, bundle)).toThrow(/Feature keys must be unique/);
   });
 });
 
@@ -231,10 +290,14 @@ describe("verification and invalidation", () => {
     );
 
     writeFileSync(join(project, "input.txt"), "second\n");
-    expect(verifyFileStore(root, "test")).toMatchObject({
+    expect(verifyFileStore(root)).toMatchObject({
       stale: [evidence.id],
       claimsNeedingReview: ["claim"],
     });
+    expect(evidenceRecords(root)[0]?.state).toBe("ACTIVE");
+    expect(readFileSync(join(root, "claims", "feature", "claim.json"), "utf8")).toContain('"ACTIVE"');
+
+    applyVerification(root, "test");
     expect(evidenceRecords(root)[0]?.state).toBe("STALE");
     expect(readFileSync(join(root, "claims", "feature", "claim.json"), "utf8")).toContain("NEEDS_REVIEW");
   });
@@ -267,7 +330,7 @@ describe("verification and invalidation", () => {
   it("leaves invalidated evidence invalidated across verification", () => {
     const evidence = recordEvidence(root, observation(), "agent");
     invalidateEvidence(root, evidence.id, "human");
-    verifyFileStore(root, "test");
+    applyVerification(root, "test");
     expect(evidenceRecords(root)[0]?.state).toBe("INVALIDATED");
   });
 });
@@ -399,39 +462,87 @@ describe("verify as a CI gate", () => {
 
   it("reports no drift on a clean store", () => {
     claimOn(recordEvidence(root, observation(), "agent").id);
-    expect(verifyFileStore(root, "test")).toMatchObject({ drift: false, claimsNeedingReview: [] });
+    const eventsBefore = readdirSync(join(root, "events")).length;
+    expect(verifyFileStore(root)).toMatchObject({ drift: false, claimsNeedingReview: [], changes: 0 });
+    expect(readdirSync(join(root, "events"))).toHaveLength(eventsBefore);
   });
 
   it("keeps reporting drift on repeated runs, not only on the transition", () => {
     claimOn(recordEvidence(root, observation(), "agent").id);
     writeFileSync(join(project, "input.txt"), "second\n");
 
-    const first = verifyFileStore(root, "test");
+    const first = verifyFileStore(root);
     expect(first).toMatchObject({ drift: true, claimsNeedingReview: ["claim"] });
 
-    // The claim is already NEEDS_REVIEW, so nothing transitions this time.
-    const second = verifyFileStore(root, "test");
+    const second = verifyFileStore(root);
     expect(second).toMatchObject({ drift: true, claimsNeedingReview: ["claim"] });
   });
 
   it("reports drift for an orphaned citation", () => {
     claimOn(recordEvidence(root, observation(), "agent").id);
     rmSync(join(project, "input.txt"));
-    expect(verifyFileStore(root, "test")).toMatchObject({ drift: true, orphaned: [expect.any(String)] });
+    expect(verifyFileStore(root)).toMatchObject({ drift: true, orphaned: [expect.any(String)] });
   });
 
   it("reports drift while a human invalidation is unresolved", () => {
     const evidence = recordEvidence(root, observation(), "agent");
     claimOn(evidence.id);
     invalidateEvidence(root, evidence.id, "human");
-    expect(verifyFileStore(root, "test").drift).toBe(true);
+    expect(verifyFileStore(root).drift).toBe(true);
+  });
+
+  it("does not block CI on stale evidence used only by a superseded claim", () => {
+    const oldEvidence = recordEvidence(root, observation(), "agent");
+    claimOn(oldEvidence.id, "old-claim");
+
+    writeFileSync(join(project, "input.txt"), "second\n");
+    const newEvidence = recordEvidence(
+      root,
+      observation({
+        citation: { ...observation().citation, contentHash: hash("second") },
+        observation: { value: "second" },
+      }),
+      "agent",
+    );
+    writeClaim(
+      root,
+      {
+        id: "new-claim",
+        feature: "feature",
+        predicate: "open",
+        object: {},
+        evidenceIds: [newEvidence.id],
+        state: "ACTIVE",
+        supersedes: "old-claim",
+        recordedAt: recordedAt(),
+      },
+      "agent",
+      "claim.supersede",
+    );
+
+    expect(verifyFileStore(root)).toMatchObject({
+      drift: false,
+      stale: [],
+      historicalStale: [oldEvidence.id],
+    });
+  });
+
+  it("writes transitions only when explicitly applied", () => {
+    claimOn(recordEvidence(root, observation(), "agent").id);
+    writeFileSync(join(project, "input.txt"), "second\n");
+    const eventsBefore = readdirSync(join(root, "events")).length;
+
+    expect(verifiedSnapshot(root).changes).toBe(2);
+    expect(readdirSync(join(root, "events"))).toHaveLength(eventsBefore);
+    expect(applyVerification(root, "test").changes).toBe(2);
+    expect(readdirSync(join(root, "events"))).toHaveLength(eventsBefore + 1);
   });
 });
 
 describe("workspace layout", () => {
   it("creates the record directories and no derived index", () => {
     expect(specBrainDirectory(project)).toBe(root);
-    for (const directory of ["evidence", "claims", "events", "extractions", "spec"]) {
+    for (const directory of ["evidence", "claims", "events", "analyses", "features", "spec"]) {
       expect(existsSync(join(root, directory))).toBe(true);
     }
     expect(existsSync(join(root, ".index"))).toBe(false);

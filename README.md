@@ -1,93 +1,103 @@
 # Mobile Spec Brain
 
-Mobile Spec Brain is an evidence-first, local repository protocol for mobile delivery. It does not infer a hidden
-database model from Android or iOS code. An AI (or another extractor) submits an open observation and a closed
-citation; the CLI re-reads that range, verifies its hash, and persists the result as reviewable files.
+Mobile Spec Brain turns an AI analysis of a project into cited, reviewable specification state. The AI explores the
+configured project sources and returns one fixed analysis bundle. The CLI independently re-reads every citation,
+validates the bundle, and applies it only after explicit human confirmation.
 
-`.spec-brain/` is the source of truth and is intended to be committed. `.spec-brain/spec/` is derived and ignored.
+`.spec-brain/` is the committed source of truth. `.spec-brain/spec/` is a generated view and is ignored.
 
-## Workflow
+## Project-wide workflow
 
 ```sh
 pnpm install
+pnpm build
 pnpm spec-brain init
-pnpm spec-brain cite src/Transfer.kt 12 15   # build a verified citation
-pnpm spec-brain profile propose --file profile.json
-# A human reviews profile.json and changes status from PROPOSED to APPROVED.
-pnpm spec-brain extract --scope src --file extraction-proposal.json
-pnpm spec-brain evidence record --file evidence.json
-pnpm spec-brain claim propose --file claim.json
-pnpm spec-brain verify --fail-on-drift
+pnpm spec-brain analysis contract
+
+# An AI explores the project and writes project-analysis.json.
+pnpm spec-brain analysis validate --file project-analysis.json
+# A human reviews the bundle before applying it.
+pnpm spec-brain analysis ingest --file project-analysis.json --confirm-human
+
+pnpm spec-brain verify --check
 pnpm spec-brain spec render transfer
 ```
 
-[docs/workflow.md](docs/workflow.md) walks through adopting this in an existing mobile repository, with the CI job
-and a worked drift example.
+The user does not configure a code scope or register every feature. `filesRead` records what the AI actually inspected;
+every cited path must appear there. It is audit metadata, not a cache boundary. Feature discovery, file selection, and
+semantic interpretation belong to the AI. Citation verification, persistence, drift checks, and projection remain
+deterministic.
 
-Never assemble a citation by hand. `cite` reads the range through the same code path verification uses and fills in
-the content hash and git revision, so a citation it produces cannot fail its own check.
+For large repositories, an agent may internally divide its work or use Git changes to refresh affected features. A
+partial analysis must still describe excluded or unavailable sources in the bundle. The CLI never treats an optional
+focus hint as proof that the rest of the project was analyzed.
 
-`profile.json` entries have citations too. Evidence may be recorded only after human profile approval.
-`evidence record` rejects a path that escapes its source root — lexically or through a symbolic link — a missing
-range, or a mismatched content hash. `verify` marks changed citations `STALE`, missing citations `ORPHANED`, and
-dependent active claims `NEEDS_REVIEW`.
+## Analysis bundle
 
-The external extraction boundary is deliberately narrow:
+One bundle contains:
 
-```json
-{
-  "citation": {
-    "sourceId": "project",
-    "path": "src/Transfer.kt",
-    "range": [12, 15],
-    "contentHash": "sha256:<64 hex chars>",
-    "revision": "git-or-local-revision"
-  },
-  "kind": "network-wrapper",
-  "observation": { "summary": "Open, AI-proposed observation" },
-  "extractor": { "id": "agent", "version": "1", "model": "optional", "promptVersion": "optional" },
-  "confidence": 0.8,
-  "authority": 0.6
-}
+- repository and extractor provenance;
+- every path the AI actually read and every source it deliberately excluded;
+- optional cited project-profile updates;
+- automatically discovered features;
+- cited evidence and claims referring to local evidence keys;
+- all fixed coverage sections: `product`, `design`, `api`, `implementation`, and `navigation`.
+
+Coverage status is explicit: `ANALYZED`, `UNKNOWN`, `NOT_APPLICABLE`, or `SOURCE_UNAVAILABLE`. Completeness is computed
+from these protocol sections, not from however many claims the AI happened to emit. Missing API or design knowledge
+therefore cannot produce a misleading 100% result. `ANALYZED` and `NOT_APPLICABLE` both require supporting evidence;
+the other statuses require an explicit reason.
+
+Never assemble a citation hash by hand. Use:
+
+```sh
+pnpm spec-brain cite src/Transfer.kt 12 15
 ```
 
-No fixed Android, iOS, Retrofit, navigation, or product-domain extractor is part of the CLI. `extract --scope --file`
-accepts an AI-generated `{ extractor, observations }` proposal, validates every citation, and stores a committed
-extraction-cache record. The same scope contents plus extractor/model/prompt versions reuse the existing evidence
-rather than re-extracting, up to 1000 observations per extraction.
+`cite`, analysis validation, and verification share the same range reader. Paths that leave a registered source root,
+including symbolic-link escapes, are rejected.
 
-An evidence ID is derived from the citation, the observation `kind`, and the observation body, so two different
-observations about the same lines are two records and an identical observation recorded twice is one.
+## Verification and history
+
+`verify` is read-only by default:
+
+```sh
+pnpm spec-brain verify          # JSON report, exit 0
+pnpm spec-brain verify --check  # read-only CI gate, exit 1 on current drift
+pnpm spec-brain verify --write  # explicitly persist calculated state transitions
+```
+
+A clean verification writes no event and leaves Git clean. Drift is determined from evidence used by current claims
+or current coverage. Stale evidence referenced only by superseded historical claims remains visible as historical
+drift but does not block CI.
 
 ## Commands
 
-| Command                                         | Purpose                                                 |
-| ----------------------------------------------- | ------------------------------------------------------- |
-| `init`                                          | Create `.spec-brain/` in the current directory          |
-| `cite <path> <start> <end>`                     | Build a verified citation for a line range              |
-| `profile read\|propose`                         | Read or propose the cited project profile               |
-| `evidence record\|query`                        | Record a cited observation, or query stored evidence    |
-| `evidence invalidate --id <id> --confirm-human` | Mark evidence `INVALIDATED` and review dependent claims |
-| `claim propose\|supersede`                      | Record a claim, or supersede an earlier one             |
-| `graph query`                                   | Filter claims by feature, predicate, or state           |
-| `extract --scope <path> [--file <proposal>]`    | Preview an extraction key, or submit a proposal         |
-| `verify [--fail-on-drift]`                      | Re-read every citation, propagate state, gate CI        |
-| `coverage`                                      | Count sources, evidence states, and claim states        |
-| `spec render <feature> [--section <name>]`      | Write the derived JSON and Markdown views               |
+| Command                                           | Purpose                                            |
+| ------------------------------------------------- | -------------------------------------------------- |
+| `init`                                            | Create `.spec-brain/`                              |
+| `analysis contract`                               | Print the project-analysis bundle contract         |
+| `analysis validate --file <bundle>`               | Validate schemas, references, paths, and citations |
+| `analysis ingest --file <bundle> --confirm-human` | Apply one reviewed project analysis                |
+| `cite <path> <start> <end>`                       | Build a verified citation                          |
+| `profile read\|propose`                           | Read or propose the cited project profile          |
+| `evidence record\|query\|invalidate`              | Low-level evidence operations                      |
+| `claim propose\|supersede`                        | Low-level claim operations                         |
+| `graph query`                                     | Query current claims and their evidence            |
+| `verify [--check\|--write]`                       | Inspect or explicitly persist drift state          |
+| `coverage`                                        | Count effective evidence and claim states          |
+| `spec render <feature> [--section <name>]`        | Render deterministic JSON and Markdown             |
 
-`spec render` creates deterministic JSON and Markdown views containing claims, full evidence citations and states,
-unresolved items, and completeness. Generic claims whose object has `{ method, path }`, `{ nodeId, name }`,
-`{ platform, status }`, or `{ direction, route }` project into API, Figma, implementation, and navigation sections
-without adding concept-specific recording commands. `--section api|figma|implementation|navigation|unknowns` narrows
-the render to one projection while keeping its provenance. It never fills missing product facts.
+The low-level evidence and claim commands remain available for repair and advanced workflows. Normal team adoption
+uses one reviewable analysis bundle instead of manually assembling several JSON files.
 
-## Verification
+## Verification of this repository
 
 ```sh
 pnpm check
 pnpm test
 ```
 
-`pnpm check` runs the formatter check, the build, `tsc --noEmit`, and ESLint. The end-to-end CLI test proves
-invalid-citation rejection, source change propagation, section narrowing, human-gated invalidation, and stable render
-output using a real child process.
+See [the team workflow](docs/workflow.md), [architecture](docs/architecture.md), and
+[analysis protocol decision](docs/decisions/ADR-008-project-wide-analysis-bundles.md). The end-to-end behavior is
+recorded in the [KMP team pilot](docs/verification/2026-08-10-project-wide-kmp-pilot.md).
