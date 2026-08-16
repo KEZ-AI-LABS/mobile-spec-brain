@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   buildFileSpec,
+  coverageSections,
+  coverageStatuses,
   isSpecSection,
   selectSpecSection,
   specSections,
@@ -10,22 +12,23 @@ import {
   type FileSpec,
 } from "@mobile-spec-brain/core";
 import {
+  applyVerification,
   buildCitation,
-  claimRecords,
   coverage,
-  evidenceRecords,
-  extractEvidence,
-  extractionKeyFor,
   graphQuery,
+  ingestAnalysisBundle,
   initializeFileStore,
   invalidateEvidence,
   projectSource,
   proposeProfile,
   readProfile,
+  readFeatureCoverage,
   recordEvidence,
   specBrainDirectory,
   stableJson,
+  validateAnalysisBundle,
   verifyFileStore,
+  verifiedSnapshot,
   writeClaim,
   type CitationRequest,
 } from "@mobile-spec-brain/storage";
@@ -43,8 +46,10 @@ const USAGE = `Usage: spec-brain <command>
   claim propose --file <claim.json>
   claim supersede --file <claim.json>
   graph query [--feature f] [--predicate p] [--state s]
-  extract --scope <path> [--file <proposal.json>]
-  verify [--fail-on-drift]
+  analysis contract
+  analysis validate --file <analysis.json>
+  analysis ingest --file <analysis.json> --confirm-human
+  verify [--check|--write]
   coverage
   spec render <feature> [--section ${specSections.join("|")}]`;
 
@@ -57,7 +62,7 @@ interface ParsedArguments {
 }
 
 /** Flags that stand alone rather than taking the next token as a value. */
-const BOOLEAN_FLAGS = new Set(["--json", "--confirm-human", "--fail-on-drift"]);
+const BOOLEAN_FLAGS = new Set(["--json", "--confirm-human", "--check", "--write"]);
 
 function parseArguments(argv: string[]): ParsedArguments {
   const positional: string[] = [];
@@ -156,14 +161,21 @@ function profile(): void {
 function evidence(): void {
   requireStore();
   if (args.subcommand === "query") {
+    const snapshot = verifiedSnapshot(root);
+    const featureIds = option("--feature")
+      ? new Set(
+          snapshot.claims
+            .filter((claim) => claim.feature === option("--feature") && claim.state !== "SUPERSEDED")
+            .flatMap((claim) => claim.evidenceIds),
+        )
+      : undefined;
     return output({
       status: "complete",
-      evidence: evidenceRecords(root, {
-        kind: option("--kind"),
-        path: option("--path"),
-        state: option("--state"),
-        feature: option("--feature"),
-      }),
+      evidence: snapshot.evidence
+        .filter((item) => !option("--kind") || item.kind === option("--kind"))
+        .filter((item) => !option("--path") || item.citation.path.includes(option("--path")!))
+        .filter((item) => !option("--state") || item.state === option("--state"))
+        .filter((item) => !featureIds || featureIds.has(item.id)),
     });
   }
   if (args.subcommand === "record") {
@@ -202,28 +214,38 @@ function graph(): void {
   });
 }
 
-function extract(): void {
+function analysis(): void {
   requireStore();
-  const scope = requiredOption("--scope");
-  const proposalPath = option("--file");
-
-  if (!proposalPath) {
-    const extractor = { id: "external-ai", version: "1", promptVersion: "citation-only", model: "external" };
+  if (args.subcommand === "contract") {
     return output({
-      status: "ready",
-      scope,
-      extractionCacheKey: extractionKeyFor(root, scope, extractor),
-      contract:
-        "Return only open observations with closed citations as { extractor, observations }, then pass them " +
-        "through `spec-brain extract --scope <scope> --file proposal.json`. Every cited range is re-read and " +
-        "re-hashed; an identical extraction key reuses the previous result.",
-      profile: readProfile(root).status,
+      status: "complete",
+      contract: {
+        schemaVersion: 1,
+        repository: { revision: "git revision", dirtyFingerprint: "optional working-tree fingerprint" },
+        extractor: { id: "agent", version: "1", model: "optional", promptVersion: "optional" },
+        filesRead: [{ sourceId: "project", path: "path actually inspected by the AI" }],
+        excluded: ["explicitly skipped paths or unavailable sources"],
+        profile: { entries: "optional cited project-profile entries" },
+        features: {
+          coverageSections,
+          coverageStatuses,
+          evidence: "keyed observations with closed citations",
+          claims: "claim proposals referencing local evidence keys",
+        },
+      },
+      note: "The AI explores the configured project sources. filesRead is audit metadata, not a correctness or cache scope.",
     });
   }
-
-  const proposal = JSON.parse(readFileSync(resolve(projectRoot, proposalPath), "utf8"));
-  const result = extractEvidence(root, scope, proposal, "agent");
-  output({ status: result.reused ? "reused" : "extracted", ...result });
+  if (args.subcommand === "validate") {
+    return output({ status: "valid", ...validateAnalysisBundle(root, fileInput()) });
+  }
+  if (args.subcommand === "ingest") {
+    if (!args.flags.has("--confirm-human")) {
+      fail("`analysis ingest` requires --confirm-human after reviewing the project analysis bundle.");
+    }
+    return output({ status: "complete", analysis: ingestAnalysisBundle(root, fileInput(), "human") });
+  }
+  fail("Use `spec-brain analysis contract|validate|ingest`.");
 }
 
 function renderMarkdown(view: FileSpec, section: string, evidence: FileEvidence[]): string {
@@ -237,12 +259,21 @@ function renderMarkdown(view: FileSpec, section: string, evidence: FileEvidence[
     `- Feature: ${quote(view.feature.key)}`,
     `- Graph state: ${quote(view.graphHash)}`,
     `- Completeness: ${(view.completeness.ratio * 100).toFixed(1)}% ` +
-      `(${view.completeness.knownFields} known / ${view.completeness.unknownFields} unknown, ` +
-      `${view.completeness.staleFields} stale)`,
+      `(${view.completeness.completeSections}/${view.completeness.totalSections} protocol sections complete, ` +
+      `${view.completeness.staleSections} stale)`,
     `- Section: ${quote(section)}`,
   ];
 
   const push = (heading: string, body: string[]) => lines.push("", `## ${heading}`, "", ...body);
+
+  push(
+    "Protocol coverage",
+    view.coverage.map(
+      (item) =>
+        `- ${quote(item.section)} — **${item.status}** / ${item.state}` +
+        `${item.reason ? ` — ${item.reason}` : ""} · evidence: ${ids(item.evidenceIds)}`,
+    ),
+  );
 
   if (view.unknowns.length || section === "all" || section === "unknowns") {
     push(
@@ -325,13 +356,18 @@ function renderSpec(): void {
     fail(`Unknown section '${section}'. Valid sections: ${specSections.join(", ")}.`);
   }
 
-  const claims = claimRecords(root)
-    .filter((item) => item.feature === feature)
+  const snapshot = verifiedSnapshot(root);
+  const claims = snapshot.claims
+    .filter((item) => item.feature === feature && item.state !== "SUPERSEDED")
     .sort((left, right) => left.id.localeCompare(right.id));
-  const ids = new Set(claims.flatMap((item) => item.evidenceIds));
-  const evidence = evidenceRecords(root).filter((item) => ids.has(item.id));
+  const featureCoverage = readFeatureCoverage(root, feature);
+  const ids = new Set([
+    ...claims.flatMap((item) => item.evidenceIds),
+    ...(featureCoverage?.sections.flatMap((item) => item.evidenceIds) ?? []),
+  ]);
+  const evidence = snapshot.evidence.filter((item) => ids.has(item.id));
 
-  const full = buildFileSpec(feature, claims, evidence);
+  const full = buildFileSpec(feature, claims, evidence, featureCoverage);
   const view = section ? selectSpecSection(full, section) : full;
 
   const directory = join(root, "spec");
@@ -349,13 +385,16 @@ const commands: Record<string, () => void> = {
   evidence,
   claim,
   graph,
-  extract,
+  analysis,
   spec: renderSpec,
   verify: () => {
     requireStore();
-    const result = verifyFileStore(root, "verifier");
+    if (args.flags.has("--check") && args.flags.has("--write")) {
+      fail("Use either --check or --write, not both.");
+    }
+    const result = args.flags.has("--write") ? applyVerification(root, "verifier") : verifyFileStore(root);
     output({ status: "complete", ...result });
-    if (result.drift && args.flags.has("--fail-on-drift")) process.exitCode = 1;
+    if (result.drift && args.flags.has("--check")) process.exitCode = 1;
   },
   coverage: () => {
     requireStore();

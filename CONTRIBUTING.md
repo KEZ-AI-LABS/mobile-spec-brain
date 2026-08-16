@@ -36,14 +36,16 @@ has a familiar list of concepts. New records must preserve these boundaries:
 - Every observation carries a citation that the CLI can independently re-read and re-hash.
 - Citation structure stays closed; `kind`, `observation`, `predicate`, and `object` stay open.
 - Unknown concepts are candidates in `concepts.json`, not silently promoted domain truth.
-- Every mutation appends an event.
+- Project analysis uses one bundle with all five fixed coverage sections and no caller-selected correctness scope.
+- Reviewed mutations append events; read-only verification never does.
 
-Changing the evidence ID derivation, the citation schema, or the record layout changes how existing `.spec-brain/`
-directories are read. Bump `SCHEMA_VERSION` in `packages/storage/src/file-store.ts` so extraction cache keys do not
-collide across the change, and say so in the pull request.
+Changing the evidence ID derivation, citation schema, bundle schema version, or record layout changes how existing
+`.spec-brain/` directories are read. Document the migration and say so in the pull request. Do not add a cache unless
+it prevents an actual expensive operation before that operation runs and validates every distinct proposal.
 
 Read [ADR-006](docs/decisions/ADR-006-open-semantic-graph.md) before changing the open vocabulary or file protocol,
-and [ADR-007](docs/decisions/ADR-007-no-derived-index.md) before proposing a derived index.
+and [ADR-007](docs/decisions/ADR-007-no-derived-index.md) before proposing a derived index. Read
+[ADR-008](docs/decisions/ADR-008-project-wide-analysis-bundles.md) before adding a project partition or AI cache.
 
 ## Pull requests
 

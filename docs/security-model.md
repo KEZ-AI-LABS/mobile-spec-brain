@@ -1,31 +1,33 @@
 # Safety model
 
-An external model may propose observations only. It cannot assert an unchecked fact: every observation carries a
-citation, and `evidence record` rejects source-root escapes, missing ranges, and hash mismatches.
+An AI may propose one project analysis bundle. It cannot directly commit a fact: the CLI validates the complete bundle
+and `analysis ingest` requires explicit human confirmation.
 
-## Source-root containment
+## Source containment and citations
 
-A citation path is resolved against its registered source root and rejected if it leaves that root, both lexically
-(`..`) and after symbolic links are resolved with `realpath`. Extraction scopes are resolved the same way, and scope
-hashing skips symbolic links entirely rather than following them out of the tree.
+Every citation is resolved against a registered source root and rejected if it escapes lexically or through symbolic
+links. Every cited range is re-read and hashed. `filesRead` paths are also containment-checked, but they are audit
+metadata rather than a permission or cache scope. Every cited path must be present in that manifest, preventing an AI
+from understating which files supported its proposal.
 
-## Error messages do not echo cited content
+Hash mismatch errors report citation coordinates and hashes but never echo cited source content, which may contain
+secrets.
 
-A hash mismatch reports the citation, the expected hash, and the actual hash — never the bytes that were read. CLI
-output reaches terminals, CI logs, and agent transcripts, so a message that quoted the cited lines would be a
-disclosure path for any secret a mistaken citation happened to point at.
+## Human gate
 
-## Human gates
+`analysis validate` is read-only. `analysis ingest --confirm-human` records reviewed intent, not authenticated identity.
+It is an audit boundary for a local repository, not protection from an operator who can already edit files.
 
-A profile stays `PROPOSED` until a reviewed edit sets it to `APPROVED`; evidence recording and extraction are blocked
-before that point. Verification may mark evidence `STALE` or `ORPHANED`, but moving a record to `INVALIDATED`
-requires `evidence invalidate --confirm-human`.
+Low-level evidence invalidation also requires `--confirm-human`. Invalidation means the evidence should not have been
+accepted; normal product evolution uses new evidence and superseding claims.
 
-`--confirm-human` records intent, not identity. It makes invalidation a deliberate act with an audit event rather
-than something an agent does in passing; it is not authentication, and the file protocol does not claim to be a
-trust boundary against an operator who is already running the CLI.
+## Verification safety
 
-## Extraction limits
+`verify` and `verify --check` are read-only and never append an event. CI therefore cannot change the canonical store.
+Only `verify --write` materializes calculated state changes, and a clean run writes nothing.
 
-A single extraction accepts at most 1000 observations. The cap is absolute rather than a ratio against existing
-records, so a first extraction against an empty store is not rejected for lacking a baseline.
+## Analysis limits
+
+The CLI imposes no caller-selected code scope and no fixed observation-count cap. Agents may chunk large repositories
+internally. Reviewability comes from explicit `filesRead`, `excluded`, feature coverage, deterministic citation
+validation, and human approval of the final bundle.

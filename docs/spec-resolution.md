@@ -1,30 +1,25 @@
 # Spec resolution
 
-`spec render <feature>` is a deterministic projection of committed claims, not an editable record. It selects the
-claims for a feature, pulls the evidence they reference, and writes `spec/<feature>.spec.json` and
-`spec/<feature>.md`.
+`spec render <feature>` is a deterministic projection of current claims, effective evidence state, and the feature's
+fixed coverage record. It writes generated JSON and Markdown under `.spec-brain/spec/`.
 
 ## Projection
 
-A claim reaches a typed section by the shape of its object, so no concept-specific recording command is needed:
-
-| Object shape           | Section          |
+| Claim object shape     | Projection       |
 | ---------------------- | ---------------- |
 | `{ method, path }`     | `api`            |
 | `{ nodeId, name }`     | `figma`          |
 | `{ platform, status }` | `implementation` |
 | `{ direction, route }` | `navigation`     |
 
-A claim that matches nothing still appears in `claims`; the projection never invents a value it was not given.
-
-## Sections
-
-`--section <api|figma|implementation|navigation|unknowns>` narrows the render to one projection. The other
-projections are emptied in both the JSON and the Markdown, while provenance — feature, completeness, graph hash,
-claims, and evidence — is always retained so a narrowed view is still auditable.
+Open-world claims that match no projection remain in provenance. Superseded claims are historical and are excluded
+from the current materialized view.
 
 ## Completeness
 
-Completeness is measured over claims: `knownFields` counts claims that are `ACTIVE` with all evidence `ACTIVE`, and
-`unknownFields` is the remainder. A feature with no claims reports a single `EVIDENCE_ABSENT` unknown and a ratio of
-zero. Missing product facts are reported as unknowns; they are never filled in.
+Completeness is based on the five protocol sections: product, design, API, implementation, and navigation.
+`ANALYZED` and `NOT_APPLICABLE` count as complete while `UNKNOWN` and `SOURCE_UNAVAILABLE` remain incomplete. A section
+whose evidence is stale becomes `NEEDS_REVIEW` and incomplete. Claim count cannot inflate the result.
+
+`--section <api|figma|implementation|navigation|unknowns>` narrows typed projections while retaining protocol coverage,
+current provenance, graph hash, claims, and evidence.

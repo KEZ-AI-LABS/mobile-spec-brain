@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildFileSpec, isSpecSection, selectSpecSection, type FileClaim, type FileEvidence } from "./index.js";
+import {
+  buildFileSpec,
+  isSpecSection,
+  selectSpecSection,
+  type FeatureCoverageRecord,
+  type FileClaim,
+  type FileEvidence,
+} from "./index.js";
 
 const recordedAt = "2026-01-01T00:00:00.000Z";
 
@@ -25,6 +32,16 @@ function evidence(suffix: string, state: FileEvidence["state"] = "ACTIVE"): File
 
 function claim(id: string, object: unknown, evidenceIds: string[]): FileClaim {
   return { id, feature: "transfer", predicate: "open", object, evidenceIds, state: "ACTIVE", recordedAt };
+}
+
+function coverage(sections: FeatureCoverageRecord["sections"]): FeatureCoverageRecord {
+  return {
+    feature: "transfer",
+    displayName: "Transfer",
+    analysisId: "analysis_test",
+    sections,
+    updatedAt: recordedAt,
+  };
 }
 
 describe("buildFileSpec", () => {
@@ -55,7 +72,7 @@ describe("buildFileSpec", () => {
     );
   });
 
-  it("counts each unresolved claim once rather than twice", () => {
+  it("measures completeness against the fixed protocol instead of the number of claims", () => {
     const stale = evidence("b", "STALE");
     const active = evidence("a");
     const spec = buildFileSpec(
@@ -65,21 +82,47 @@ describe("buildFileSpec", () => {
         claim("bad", { method: "GET", path: "/b" }, [stale.id]),
       ],
       [active, stale],
+      coverage([
+        { section: "product", status: "ANALYZED", evidenceIds: [active.id] },
+        { section: "design", status: "NOT_APPLICABLE", evidenceIds: [] },
+        { section: "api", status: "ANALYZED", evidenceIds: [stale.id] },
+        { section: "implementation", status: "SOURCE_UNAVAILABLE", evidenceIds: [] },
+        { section: "navigation", status: "UNKNOWN", evidenceIds: [] },
+      ]),
     );
 
-    expect(spec.completeness).toMatchObject({ knownFields: 1, unknownFields: 1, staleFields: 1, ratio: 0.5 });
+    expect(spec.completeness).toEqual({
+      totalSections: 5,
+      completeSections: 2,
+      incompleteSections: 3,
+      staleSections: 1,
+      ratio: 0.4,
+    });
+    expect(spec.coverage.find((item) => item.section === "api")?.state).toBe("NEEDS_REVIEW");
   });
 
   it("marks a claim NEEDS_REVIEW when its evidence is not active", () => {
     const stale = evidence("b", "STALE");
     const spec = buildFileSpec("transfer", [claim("bad", { method: "GET", path: "/b" }, [stale.id])], [stale]);
     expect(spec.api[0]?.state).toBe("NEEDS_REVIEW");
-    expect(spec.unknowns).toMatchObject([{ field: "bad" }]);
+    expect(spec.unknowns).toEqual(expect.arrayContaining([expect.objectContaining({ field: "bad" })]));
   });
 
-  it("reports EVIDENCE_ABSENT when a feature has no claims", () => {
+  it("reports protocol coverage as unknown when no analysis record exists", () => {
     const spec = buildFileSpec("transfer", [], []);
-    expect(spec.unknowns).toMatchObject([{ field: "claims", reason: "EVIDENCE_ABSENT" }]);
+    expect(spec.unknowns).toHaveLength(5);
+    expect(spec.unknowns[0]).toMatchObject({ field: "coverage.product", reason: "UNKNOWN" });
+    expect(spec.completeness.ratio).toBe(0);
+  });
+
+  it("cannot report 100 percent merely because every existing claim is active", () => {
+    const active = evidence("a");
+    const spec = buildFileSpec(
+      "transfer",
+      [claim("impl", { platform: "android", status: "DONE" }, [active.id])],
+      [active],
+    );
+    expect(spec.implementations).toHaveLength(1);
     expect(spec.completeness.ratio).toBe(0);
   });
 });
